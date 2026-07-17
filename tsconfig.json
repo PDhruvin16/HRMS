@@ -16,5 +16,17 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/Pods",
+    "src/hooks/conversation/**/*",
+    "src/hooks/useDistributor.ts",
+    "src/hooks/useGlobalSockets.ts",
+    "src/context/AppDataContext.tsx",
+    "src/components/UICore/**/*",
+    "src/store/slices/conversationSlice.ts",
+    "src/store/slices/messageSlice.ts",
+    "src/store/slices/notificationSlice.ts"
   ]
 }

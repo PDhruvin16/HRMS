@@ -1,0 +1,28 @@
+<svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g filter="url(#filter0_i_3212_8575)">
+<path d="M0 8C0 3.58172 3.58172 0 8 0H28C32.4183 0 36 3.58172 36 8V28C36 32.4183 32.4183 36 28 36H8C3.58172 36 0 32.4183 0 28V8Z" fill="url(#paint0_linear_3212_8575)"/>
+<path d="M8 0.5H28C32.1421 0.5 35.5 3.85786 35.5 8V28C35.5 32.1421 32.1421 35.5 28 35.5H8C3.85786 35.5 0.5 32.1421 0.5 28V8C0.5 3.85786 3.85786 0.5 8 0.5Z" stroke="url(#paint1_linear_3212_8575)"/>
+<path d="M25.0876 12.8427C25.397 13.0186 25.6538 13.2738 25.8318 13.5819C26.0097 13.8901 26.1024 14.2401 26.1002 14.5959V21.1516C26.1002 21.8798 25.7014 22.5512 25.0579 22.9049L18.9828 26.7479C18.6816 26.9133 18.3436 27 18 27C17.6564 27 17.3184 26.9133 17.0172 26.7479L10.9421 22.9049C10.6272 22.7328 10.3644 22.4793 10.181 22.1709C9.9977 21.8625 9.90059 21.5104 9.89987 21.1516V14.595C9.89987 13.8669 10.2986 13.1964 10.9421 12.8427L17.0172 9.26064C17.3273 9.08967 17.6756 9 18.0297 9C18.3838 9 18.7321 9.08967 19.0422 9.26064L25.1173 12.8427H25.0876Z" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M18.3 13.2103L18.31 13.1992M18.3 17.2003V22.2003" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<defs>
+<filter id="filter0_i_3212_8575" x="0" y="0" width="38.3478" height="38.3478" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dx="2.34783" dy="2.34783"/>
+<feGaussianBlur stdDeviation="3.52174"/>
+<feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.06 0"/>
+<feBlend mode="normal" in2="shape" result="effect1_innerShadow_3212_8575"/>
+</filter>
+<linearGradient id="paint0_linear_3212_8575" x1="39.913" y1="36" x2="14.087" y2="-7.04348" gradientUnits="userSpaceOnUse">
+<stop offset="0.0757227" stop-color="#71D542"/>
+<stop offset="1" stop-color="#71D542" stop-opacity="0.2"/>
+</linearGradient>
+<linearGradient id="paint1_linear_3212_8575" x1="10.9565" y1="-4.69565" x2="37.5652" y2="30.1304" gradientUnits="userSpaceOnUse">
+<stop offset="0.367149" stop-color="white" stop-opacity="0"/>
+<stop offset="1" stop-color="#3B990F"/>
+</linearGradient>
+</defs>
+</svg>
