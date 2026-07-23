@@ -105,8 +105,15 @@ export const StatCard = ({
       {React.cloneElement(icon as React.ReactElement, { size: normalize(60), color })}
     </View>
     <View style={[s.statIconWrap, { backgroundColor: color + '18' }]}>{icon}</View>
-    <Typography style={[s.statValue, { color }]}>{value}</Typography>
-    <Typography style={s.statLabel} numberOfLines={2}>{label}</Typography>
+    <Typography
+      style={[s.statValue, { color }]}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={0.7}
+    >
+      {value}
+    </Typography>
+    <Typography style={s.statLabel} numberOfLines={1}>{label}</Typography>
   </BlurView>
 );
 
@@ -655,32 +662,96 @@ export const PunchSequenceModal = ({
   visible: boolean; log: AttendanceLog | null; onClose: () => void;
 }) => {
   if (!log) return null;
+  const statusColor = STATUS_COLOR[log.status] || colors.text.muted;
+  const statusBg    = STATUS_BG[log.status]    || 'rgba(156,163,175,0.1)';
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <BlurView intensity={40} tint="dark" style={s.modalOverlay}>
-        <View style={[s.modalSheet, { maxHeight: '80%' }]}>
+        <View style={[s.modalSheet, { maxHeight: '85%' }]}>
           <View style={s.modalHandle} />
           <View style={s.modalTopRow}>
-            <Typography style={s.modalTitle}>{moment(log.date).format('dddd, DD MMM YYYY')}</Typography>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(8) }}>
+              <Typography style={s.modalTitle}>{moment(log.date).format('dddd, DD MMM YYYY')}</Typography>
+              <View style={[s.statusBadge, { backgroundColor: statusBg }]}>
+                <View style={[s.statusDot, { backgroundColor: statusColor }]} />
+                <Typography style={[s.statusBadgeText, { color: statusColor }]}>{log.status}</Typography>
+              </View>
+            </View>
             <TouchableOpacity onPress={onClose} style={s.modalCloseBtn}>
               <X size={normalize(18)} color={colors.black} />
             </TouchableOpacity>
           </View>
 
-          {/* Table header */}
-          <View style={s.punchTableHeader}>
-            <Typography style={[s.th, { flex: 0.5 }]}>#</Typography>
-            <Typography style={[s.th, { flex: 1 }]}>TYPE</Typography>
-            <Typography style={[s.th, { flex: 1.5 }]}>SOURCE</Typography>
-            <Typography style={[s.th, { flex: 2, textAlign: 'right' }]}>TIME</Typography>
-          </View>
+          <ScrollView showsVerticalScrollIndicator={false} style={{ flexGrow: 1 }}>
+            {/* Day Breakdown Summary Grid */}
+            <Typography style={{ fontSize: normalize(10), fontWeight: '800', color: colors.text.muted, letterSpacing: 0.5, marginTop: normalize(8), marginBottom: normalize(8) }}>
+              ATTENDANCE BREAKDOWN
+            </Typography>
+            <View style={{ gap: normalize(8), marginBottom: normalize(16) }}>
+              <View style={{ flexDirection: 'row', gap: normalize(8) }}>
+                <View style={s.detailCell}>
+                  <Typography style={s.detailLbl}>First Punch</Typography>
+                  <Typography style={s.detailVal}>{log.firstPunchIn || '--:--'}</Typography>
+                </View>
+                <View style={s.detailCell}>
+                  <Typography style={s.detailLbl}>Last Punch</Typography>
+                  <Typography style={s.detailVal}>{log.lastPunchOut || '--:--'}</Typography>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', gap: normalize(8) }}>
+                <View style={s.detailCell}>
+                  <Typography style={s.detailLbl}>Target Hours</Typography>
+                  <Typography style={s.detailVal}>{log.targetHours || '8:30:00'}</Typography>
+                </View>
+                <View style={s.detailCell}>
+                  <Typography style={s.detailLbl}>Break Time</Typography>
+                  <Typography style={s.detailVal}>{log.breakTime || '0:00:00'}</Typography>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', gap: normalize(8) }}>
+                <View style={s.detailCell}>
+                  <Typography style={s.detailLbl}>Effective Hours</Typography>
+                  <Typography style={s.detailVal}>{log.effectiveHours || log.workingHours || '--:--:--'}</Typography>
+                </View>
+                <View style={s.detailCell}>
+                  <Typography style={s.detailLbl}>Overtime</Typography>
+                  <Typography style={[s.detailVal, log.overtime !== '0:00:00' && { color: colors.success }]}>
+                    {log.overtime || '0:00:00'}
+                  </Typography>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', gap: normalize(8) }}>
+                <View style={s.detailCell}>
+                  <Typography style={s.detailLbl}>Total Hours</Typography>
+                  <Typography style={[s.detailVal, { color: colors.primary }]}>
+                    {log.totalTimeFirstToLast || log.workingHours || '--:--:--'}
+                  </Typography>
+                </View>
+                <View style={s.detailCell}>
+                  <Typography style={s.detailLbl}>Status</Typography>
+                  <Typography style={s.detailVal}>{log.status || 'Normal'}</Typography>
+                </View>
+              </View>
+            </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} style={{ flexGrow: 0 }}>
+            {/* Punches Timeline Section */}
+            <Typography style={{ fontSize: normalize(10), fontWeight: '800', color: colors.text.muted, letterSpacing: 0.5, marginBottom: normalize(8) }}>
+              PUNCH TIMELINE ({log.punches?.length || 0})
+            </Typography>
+
+            <View style={s.punchTableHeader}>
+              <Typography style={[s.th, { flex: 0.5 }]}>#</Typography>
+              <Typography style={[s.th, { flex: 1 }]}>TYPE</Typography>
+              <Typography style={[s.th, { flex: 1.5 }]}>SOURCE</Typography>
+              <Typography style={[s.th, { flex: 2, textAlign: 'right' }]}>TIME</Typography>
+            </View>
+
             {(!log.punches || log.punches.length === 0) ? (
               <EmptyState message="No punch records for this day." />
             ) : (
               log.punches.map((p, i) => (
-                <View key={p.id} style={s.punchTableRow}>
+                <View key={p.id || `${p.time}-${i}`} style={s.punchTableRow}>
                   <Typography style={[s.td, { flex: 0.5, color: colors.text.muted }]}>#{i + 1}</Typography>
                   <View style={[s.td, { flex: 1 }]}>
                     <View style={[s.statusBadge, { backgroundColor: p.type === 'IN' ? colors.successLight : colors.text.light, paddingVertical: 2, paddingHorizontal: 6 }]}>
@@ -711,74 +782,22 @@ export const PunchSequenceModal = ({
    REJECTION MODAL
 ═══════════════════════════════════════════════════════════════ */
 
+import { RejectionReasonModal } from '../../components/Modals/RejectionReasonModal';
+
 export const RejectionModal = ({
   visible, onClose, onSubmit,
 }: {
   visible: boolean; onClose: () => void; onSubmit: (reason: string) => void;
-}) => {
-  const [reason, setReason] = useState('');
-
-  return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
-      <BlurView intensity={30} tint="dark" style={s.rejectionOverlay}>
-        <Animated.View entering={FadeInUp.springify()} style={s.rejectionBox}>
-          {/* Header */}
-          <View style={s.rejectionHeader}>
-            <View style={s.rejectionTitleIcon}>
-              <AlertCircle size={normalize(18)} color={colors.error} />
-              <Typography style={s.rejectionTitle}>Reject Request</Typography>
-            </View>
-            <TouchableOpacity onPress={onClose} style={s.rejectionCloseBtn}>
-              <X size={normalize(16)} color={colors.text.secondary} />
-            </TouchableOpacity>
-          </View>
-
-          <Typography style={s.rejectionDesc}>
-            Please enter a reason for rejecting this WFH request. The employee will see this feedback.
-          </Typography>
-
-          <TextInput
-            multiline
-            numberOfLines={4}
-            value={reason}
-            onChangeText={setReason}
-            placeholder="Write rejection reason here..."
-            placeholderTextColor="rgba(0, 0, 0, 0.35)"
-            style={s.rejectionInput}
-          />
-
-          <View style={s.rejectionFooter}>
-            <TouchableOpacity onPress={onClose} style={s.rejectionCancelBtn}>
-              <Typography style={s.rejectionCancelText}>Cancel</Typography>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => {
-                if (!reason.trim()) {
-                  Alert.alert('Required', 'Please enter a rejection reason.');
-                  return;
-                }
-                onSubmit(reason);
-                setReason('');
-              }}
-              style={s.rejectionSubmitBtn}
-            >
-              <LinearGradient
-                colors={['#EF4444', '#DC2626']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={s.rejectionSubmitGrad}
-              >
-                <Typography style={s.rejectionSubmitText}>Reject Request</Typography>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        </Animated.View>
-      </BlurView>
-    </Modal>
-  );
-};
+}) => (
+  <RejectionReasonModal
+    visible={visible}
+    onClose={onClose}
+    onSubmit={onSubmit}
+    title="Reject Request"
+    description="Please enter a reason for rejecting this WFH request. The employee will see this feedback."
+    placeholder="Write rejection reason here..."
+  />
+);
 
 /* ═══════════════════════════════════════════════════════════════
    DELETE CONFIRMATION MODAL

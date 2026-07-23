@@ -38,6 +38,7 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import moment from 'moment';
 import { Calendar } from 'react-native-calendars';
@@ -55,6 +56,7 @@ import { normalize } from '../../utils/responsive';
 import colors from '../../theme/color';
 import { Typography } from '../../components/Typography';
 import CustomHeader from '../../components/Header';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   useTodayAttendanceStatusQuery,
   useAttendanceLogsInfiniteQuery,
@@ -76,6 +78,7 @@ import {
   OvertimeRequest,
   WFHApprovalRecord,
   AttendanceSummary,
+  attendanceApi,
 } from '../../api/attendanceApi';
 import useRole from '../../hooks/useRole';
 import { InfiniteList } from '../../components/InfiniteList';
@@ -131,8 +134,10 @@ export const AttendanceScreen: React.FC = () => {
   const authUserPerms = useSelector((state: RootState) => state.auth.user?.permissions);
 
   const permissions  = (slicePerms && slicePerms.length > 0) ? slicePerms : (authUserPerms || []);
-  const hasPermission = (resource: string, action: string) =>
-    permissions.some((p: any) => p.resource === resource && p.action === action);
+  const hasPermission = (resource: string, action: string) => {
+    if (!permissions || permissions.length === 0) return true;
+    return permissions.some((p: any) => p.resource === resource && p.action === action);
+  };
 
   /* ── Available tabs (permission-gated) ───────────────────── */
   const availableTabs = useMemo<Tab[]>(() => {
@@ -176,9 +181,9 @@ export const AttendanceScreen: React.FC = () => {
   const [deletingWFHRequest,     setDeletingWFHRequest]     = useState<WFHRequest | null>(null);
   const [approvalsSearch,        setApprovalsSearch]        = useState('');
 
-  /* ── Queries (conditionally enabled by permission) ───────── */
+  /* ── Queries (conditionally enabled by active tab & permission) ───────── */
   const { data: todayStatus, isLoading: todayLoading } =
-    useTodayAttendanceStatusQuery({ enabled: hasPermission('attendance', 'view') });
+    useTodayAttendanceStatusQuery({ enabled: false });
 
   const {
     data: infiniteData,
@@ -191,13 +196,15 @@ export const AttendanceScreen: React.FC = () => {
     isError,
   } = useAttendanceLogsInfiniteQuery(
     { from: dateFrom, to: dateTo },
-    { enabled: hasPermission('attendance', 'view') },
+    { enabled: activeTab === 'My Attendance' && hasPermission('attendance', 'view') },
   );
 
-  const { data: wfhList      = [] } = useWFHRequestsQuery({ enabled: hasPermission('my_wfh', 'view') });
-  const { data: otList       = [] } = useOvertimeRequestsQuery({ enabled: hasPermission('my_overtime', 'view') });
-  const { data: wfhApprovals = [], refetch: refetchWFHApprovals } =
-    useWFHApprovalsQuery({ enabled: hasPermission('attendance', 'approve') });
+  const { data: wfhList      = [], refetch: refetchWFHList, isRefetching: isRefetchingWFHList } =
+    useWFHRequestsQuery({ enabled: activeTab === 'My WFH' && hasPermission('my_wfh', 'view') });
+  const { data: otList       = [], refetch: refetchOTList, isRefetching: isRefetchingOTList } =
+    useOvertimeRequestsQuery({ enabled: activeTab === 'My Overtime' && hasPermission('my_overtime', 'view') });
+  const { data: wfhApprovals = [], refetch: refetchWFHApprovals, isRefetching: isRefetchingWFH } =
+    useWFHApprovalsQuery({ enabled: activeTab === 'WFH Approvals' && hasPermission('attendance', 'approve') });
 
   const teamDateFrom = useMemo(
     () => teamViewType === 'today' ? today : moment().startOf('month').format('YYYY-MM-DD'),
@@ -212,7 +219,69 @@ export const AttendanceScreen: React.FC = () => {
     fetchNextPage: teamFetchNextPage,
     refetch: teamRefetch,
     isRefetching: teamRefetching,
-  } = useTeamAttendanceInfiniteQuery({ from: teamDateFrom, to: today });
+  } = useTeamAttendanceInfiniteQuery(
+    { from: teamDateFrom, to: today },
+    { enabled: activeTab === 'Team' }
+  );
+
+  const queryClient = useQueryClient();
+  const userId = useSelector((state: RootState) => state.auth.user?.id || state.auth.user?.employeeId || '');
+
+  /* ── Background Prefetching (Production Best Practice) ─────────────────── */
+  useEffect(() => {
+    if (!userId) return;
+    const prefetchTimer = setTimeout(() => {
+      const monthlyDateFrom = moment().startOf('month').format('YYYY-MM-DD');
+
+      // 1a. Background prefetch Team Attendance - Today's Log
+      queryClient.prefetchInfiniteQuery({
+        queryKey: ['attendance', 'team', userId, today, today],
+        queryFn: ({ pageParam = 1 }) =>
+          attendanceApi.getTeamAttendance({
+            page: pageParam,
+            limit: 10,
+            dateFrom: today,
+            dateTo: today,
+          }),
+        initialPageParam: 1,
+        staleTime: 5 * 60 * 1000,
+      });
+
+      // 1b. Background prefetch Team Attendance - Monthly Log
+      queryClient.prefetchInfiniteQuery({
+        queryKey: ['attendance', 'team', userId, monthlyDateFrom, today],
+        queryFn: ({ pageParam = 1 }) =>
+          attendanceApi.getTeamAttendance({
+            page: pageParam,
+            limit: 10,
+            dateFrom: monthlyDateFrom,
+            dateTo: today,
+          }),
+        initialPageParam: 1,
+        staleTime: 5 * 60 * 1000,
+      });
+
+      // 2. Background prefetch My WFH
+      if (hasPermission('my_wfh', 'view')) {
+        queryClient.prefetchQuery({
+          queryKey: ['attendance', 'wfh', userId],
+          queryFn: () => attendanceApi.getWFHRequests(),
+          staleTime: 5 * 60 * 1000,
+        });
+      }
+
+      // 3. Background prefetch WFH Approvals
+      if (hasPermission('attendance', 'approve')) {
+        queryClient.prefetchQuery({
+          queryKey: ['attendance', 'wfh-approvals', userId],
+          queryFn: () => attendanceApi.getWFHApprovals(),
+          staleTime: 5 * 60 * 1000,
+        });
+      }
+    }, 600);
+
+    return () => clearTimeout(prefetchTimer);
+  }, [userId, today]);
 
   /* ── Mutations ───────────────────────────────────────────── */
   const { mutateAsync: checkIn }   = useCheckInMutation();
@@ -384,7 +453,10 @@ export const AttendanceScreen: React.FC = () => {
           onPress: async () => {
             await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             approveWFH(item.id, {
-              onSuccess: async () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+              onSuccess: async () => {
+                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                refetchWFHApprovals();
+              },
               onError:   async (err) => { console.error(err); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); },
             });
           },
@@ -420,23 +492,28 @@ export const AttendanceScreen: React.FC = () => {
       {calendarOpen && (
         <Animated.View entering={FadeInUp.duration(300)}>
           <BlurView intensity={50} tint="light" style={s.calendarCard}>
-            <Typography style={{ fontSize: normalize(13), fontWeight: '800', color: colors.black, marginBottom: normalize(12), paddingHorizontal: normalize(4) }}>
-              Filter Date Range
-            </Typography>
-            <View style={{ flexDirection: 'row', gap: normalize(12) }}>
+            <View style={s.datePickerGrid}>
               <TouchableOpacity
-                activeOpacity={0.85}
-                style={s.dateFilterInput}
-                onPress={async () => { await Haptics.selectionAsync(); setScreenTempDate(dateFrom); setScreenActiveDatePicker('start'); }}
+                activeOpacity={0.8}
+                style={s.dateFilterBox}
+                onPress={async () => {
+                  await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setScreenTempDate(dateFrom);
+                  setScreenActiveDatePicker('start');
+                }}
               >
                 <Typography style={s.dateFilterLabel}>FROM DATE</Typography>
-                <Typography style={s.dateFilterValue}>{moment(dateFrom).format('MMM DD, YYYY')}</Typography>
+                <Typography style={s.dateFilterValue}>{dateFrom ? moment(dateFrom).format('MMM DD, YYYY') : 'Select Date'}</Typography>
               </TouchableOpacity>
 
               <TouchableOpacity
-                activeOpacity={0.85}
-                style={s.dateFilterInput}
-                onPress={async () => { await Haptics.selectionAsync(); setScreenTempDate(dateTo || today); setScreenActiveDatePicker('end'); }}
+                activeOpacity={0.8}
+                style={s.dateFilterBox}
+                onPress={async () => {
+                  await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setScreenTempDate(dateTo || today);
+                  setScreenActiveDatePicker('end');
+                }}
               >
                 <Typography style={s.dateFilterLabel}>TO DATE</Typography>
                 <Typography style={s.dateFilterValue}>{dateTo ? moment(dateTo).format('MMM DD, YYYY') : 'Select Date'}</Typography>
@@ -498,15 +575,7 @@ export const AttendanceScreen: React.FC = () => {
   /** Team tab header — view toggle + stat cards + search */
   const renderTeamHeader = () => (
     <View style={{ marginBottom: normalize(8) }}>
-      {/* Title */}
-      <View style={{ marginBottom: normalize(16) }}>
-        <Typography style={{ fontSize: normalize(18), fontWeight: '900', color: colors.black }}>
-          Team Attendance
-        </Typography>
-        <Typography style={{ fontSize: normalize(12), color: colors.text.secondary, fontWeight: '600', marginTop: normalize(2) }}>
-          {teamViewType === 'today' ? "Today's attendance overview" : "Current month's log overview"}
-        </Typography>
-      </View>
+
 
       {/* Today vs Monthly toggle */}
       <View style={{ flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: normalize(12), padding: normalize(4), marginBottom: normalize(16) }}>
@@ -557,6 +626,17 @@ export const AttendanceScreen: React.FC = () => {
   );
 
   /* ── Render ──────────────────────────────────────────────── */
+  const currentTabTitle = useMemo(() => {
+    switch (activeTab) {
+      case 'My Attendance': return 'My Attendance';
+      case 'My WFH':        return 'My WFH';
+      case 'My Overtime':   return 'My Overtime';
+      case 'Team':          return 'Team Attendance';
+      case 'WFH Approvals': return 'WFH Approvals';
+      default:              return 'Attendance';
+    }
+  }, [activeTab]);
+
   return (
     <View style={s.container}>
       <LinearGradient
@@ -567,7 +647,7 @@ export const AttendanceScreen: React.FC = () => {
       />
 
       <CustomHeader
-        variant={{ type: 'basic', title: 'Attendance' }}
+        variant={{ type: 'basic', title: currentTabTitle }}
         rightElement={
           activeTab === 'My Attendance' ? (
             <TouchableOpacity
@@ -575,6 +655,42 @@ export const AttendanceScreen: React.FC = () => {
               style={{ padding: normalize(8), backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: normalize(8) }}
             >
               <CalendarRange size={normalize(20)} color={colors.primary} />
+            </TouchableOpacity>
+          ) : ((activeTab === 'My WFH' && hasPermission('my_wfh', 'add')) ||
+               (activeTab === 'My Overtime' && hasPermission('my_overtime', 'add'))) ? (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={async () => {
+                await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setModalType(activeTab === 'My WFH' ? 'WFH' : 'Overtime');
+              }}
+              style={{
+                borderRadius: normalize(12),
+                overflow: 'hidden',
+                shadowColor: colors.primary,
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.2,
+                shadowRadius: 4,
+                elevation: 3,
+              }}
+            >
+              <LinearGradient
+                colors={colors.loginButtonBgGradient as any}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: normalize(12),
+                  paddingVertical: normalize(7),
+                  gap: normalize(5),
+                }}
+              >
+                <Plus size={15} color={colors.white} />
+                <Typography style={{ color: colors.white, fontSize: normalize(12), fontWeight: '800' }}>
+                  {activeTab === 'My WFH' ? 'New WFH' : 'New OT'}
+                </Typography>
+              </LinearGradient>
             </TouchableOpacity>
           ) : undefined
         }
@@ -611,7 +727,7 @@ export const AttendanceScreen: React.FC = () => {
             ListHeaderComponent={renderAttendanceHeader()}
             contentContainerStyle={s.content}
             showsVerticalScrollIndicator={false}
-            keyExtractor={(item) => item.date}
+            keyExtractor={(item, index) => (item.id ? `${item.id}_${index}` : item.date ? `${item.date}_${index}` : `log_${index}`)}
             emptyMessage="No attendance records found."
           />
         )
@@ -661,39 +777,40 @@ export const AttendanceScreen: React.FC = () => {
           emptyMessage="No records found matching filters."
         />
       ) : (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={s.content}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={
+                activeTab === 'WFH Approvals'
+                  ? isRefetchingWFH
+                  : activeTab === 'My WFH'
+                  ? isRefetchingWFHList
+                  : isRefetchingOTList
+              }
+              onRefresh={() => {
+                if (activeTab === 'WFH Approvals') {
+                  refetchWFHApprovals();
+                } else if (activeTab === 'My WFH') {
+                  refetchWFHList();
+                } else if (activeTab === 'My Overtime') {
+                  refetchOTList();
+                }
+              }}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
           {activeTab === 'My WFH'        && renderMyWFH()}
           {activeTab === 'My Overtime'   && renderMyOT()}
           {activeTab === 'WFH Approvals' && renderWFHApprovals()}
         </ScrollView>
       )}
 
-      {/* ── Floating Action Button (WFH / OT creation) ───────── */}
-      {((activeTab === 'My WFH' && hasPermission('my_wfh', 'add')) ||
-        (activeTab === 'My Overtime' && hasPermission('my_overtime', 'add'))) && (
-        <Animated.View entering={FadeInUp.springify()} style={s.fabWrap}>
-          <TouchableOpacity
-            style={s.fab}
-            activeOpacity={0.85}
-            onPress={async () => {
-              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setModalType(activeTab === 'My WFH' ? 'WFH' : 'Overtime');
-            }}
-          >
-            <LinearGradient
-              colors={colors.loginButtonBgGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={s.fabGrad}
-            >
-              <Plus size={normalize(20)} color={colors.white} />
-              <Typography style={s.fabText}>
-                {activeTab === 'My WFH' ? 'New WFH' : 'New OT'}
-              </Typography>
-            </LinearGradient>
-          </TouchableOpacity>
-        </Animated.View>
-      )}
+
 
       {/* ── Modals ───────────────────────────────────────────── */}
 
@@ -743,7 +860,10 @@ export const AttendanceScreen: React.FC = () => {
           const targetItem = rejectingItem;
           setRejectingItem(null);
           rejectWFH({ requestId: targetItem.id, rejectionReason: reason }, {
-            onSuccess: async () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+            onSuccess: async () => {
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              refetchWFHApprovals();
+            },
             onError:   async (err) => { console.error(err); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); },
           });
         }}

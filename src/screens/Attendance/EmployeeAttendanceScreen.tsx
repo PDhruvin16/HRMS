@@ -29,60 +29,7 @@ import { InfiniteList } from '../../components/InfiniteList';
 import { useEmployeeAttendanceInfiniteQuery } from '../../hooks/useQueries';
 import { getServerMoment } from '../../services/api';
 import { DayCard } from './DayCard';
-const PunchSequenceModal = ({
-  visible, log, onClose,
-}: { visible: boolean; log: any | null; onClose: () => void }) => {
-  if (!log) return null;
-  return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <BlurView intensity={40} tint="dark" style={s.datePickerModalOverlay}>
-        <View style={[s.modalSheet, { maxHeight: '80%' }]}>
-          <View style={s.modalHandle} />
-          <View style={s.modalTopRow}>
-            <Typography style={s.modalTitle}>{moment(log.date).format('dddd, DD MMM YYYY')}</Typography>
-            <TouchableOpacity onPress={onClose} style={s.modalCloseBtn}>
-              <X size={normalize(18)} color={colors.black} />
-            </TouchableOpacity>
-          </View>
-          
-          <View style={s.punchTableHeader}>
-            <Typography style={[s.th, { flex: 0.5 }]}>#</Typography>
-            <Typography style={[s.th, { flex: 1 }]}>TYPE</Typography>
-            <Typography style={[s.th, { flex: 1.5 }]}>SOURCE</Typography>
-            <Typography style={[s.th, { flex: 2, textAlign: 'right' }]}>TIME</Typography>
-          </View>
-
-          <ScrollView showsVerticalScrollIndicator={false} style={{ flexGrow: 0 }}>
-            {(!log.punches || log.punches.length === 0) ? (
-              <View style={{ paddingVertical: normalize(20), alignItems: 'center' }}>
-                <Typography style={{ color: colors.text.secondary }}>No punch records for this day.</Typography>
-              </View>
-            ) : (
-              log.punches.map((p, i) => (
-                <View key={p.id} style={s.punchTableRow}>
-                  <Typography style={[s.td, { flex: 0.5, color: colors.text.muted }]}>#{i + 1}</Typography>
-                  <View style={[s.td, { flex: 1 }]}>
-                    <View style={[s.statusBadge, { backgroundColor: p.type === 'IN' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(156, 163, 175, 0.1)', paddingVertical: 2, paddingHorizontal: 6 }]}>
-                      <Typography style={[s.statusBadgeText, { fontSize: normalize(10), color: p.type === 'IN' ? colors.success : colors.text.secondary }]}>{p.type}</Typography>
-                    </View>
-                  </View>
-                  <Typography style={[s.td, { flex: 1.5 }]}>{p.source}</Typography>
-                  <Typography style={[s.td, { flex: 2, textAlign: 'right', fontWeight: '600' }]}>{p.time}</Typography>
-                </View>
-              ))
-            )}
-          </ScrollView>
-
-          <TouchableOpacity activeOpacity={0.85} onPress={onClose} style={{ marginTop: normalize(16) }}>
-            <View style={s.closeOutlineBtn}>
-              <Typography style={s.closeOutlineBtnText}>Close</Typography>
-            </View>
-          </TouchableOpacity>
-        </View>
-      </BlurView>
-    </Modal>
-  );
-};
+import { PunchSequenceModal } from './AttendanceComponents';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -92,8 +39,15 @@ const StatCard = ({ icon, label, value, color }: { icon: React.ReactNode; label:
       {React.cloneElement(icon as React.ReactElement, { size: normalize(60), color: color })}
     </View>
     <View style={[s.statIconWrap, { backgroundColor: color + '18' }]}>{icon}</View>
-    <Typography style={[s.statValue, { color }]}>{value}</Typography>
-    <Typography style={s.statLabel} numberOfLines={2}>{label}</Typography>
+    <Typography
+      style={[s.statValue, { color }]}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={0.7}
+    >
+      {value}
+    </Typography>
+    <Typography style={s.statLabel} numberOfLines={1}>{label}</Typography>
   </BlurView>
 );
 
@@ -410,9 +364,9 @@ const s = StyleSheet.create({
 
   /* ── Stats scroll ────────────────────────────────────────── */
   statScroll:   { gap: normalize(12), paddingBottom: normalize(4), marginBottom: normalize(16) },
-  statCard:     { borderRadius: normalize(24), padding: normalize(20), alignItems: 'center', width: normalize(120), borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.5)', overflow: 'hidden' },
+  statCard:     { borderRadius: normalize(24), paddingHorizontal: normalize(10), paddingVertical: normalize(16), alignItems: 'center', width: normalize(124), borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.5)', overflow: 'hidden' },
   statIconWrap: { width: normalize(42), height: normalize(42), borderRadius: normalize(12), alignItems: 'center', justifyContent: 'center', marginBottom: normalize(10) },
-  statValue:    { fontSize: normalize(18), fontWeight: '900', marginBottom: normalize(4) },
+  statValue:    { fontSize: normalize(17), fontWeight: '900', marginBottom: normalize(4), textAlign: 'center', width: '100%' },
   statLabel:    { fontSize: normalize(11), color: colors.text.secondary, fontWeight: '800', textAlign: 'center' },
 
   /* ── Day log card ────────────────────────────────────────── */

@@ -4,7 +4,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Switch,
   Image,
 } from 'react-native';
@@ -24,18 +23,55 @@ import {
   Briefcase,
   LogOut,
   ChevronRight,
+  Mail,
+  GraduationCap,
+  FileText,
+  Activity,
+  Lock,
+  MapPin,
+  Phone,
+  CreditCard,
+  Eye,
+  ShieldCheck,
+  Heart,
 } from 'lucide-react-native';
-import { storage } from '../../utils/Storage';
 import { normalize } from '../../utils/responsive';
 import CustomHeader from '../../components/Header';
+import { useProfileQuery } from '../../hooks/useQueries';
+
+type ProfileTabKey = 'personal' | 'contact' | 'work' | 'education' | 'documents' | 'bgv_health' | 'salary';
+
+const PROFILE_TABS: { key: ProfileTabKey; label: string; icon: any }[] = [
+  { key: 'personal', label: 'Personal', icon: User },
+  { key: 'contact', label: 'Contact', icon: Mail },
+  { key: 'work', label: 'Work', icon: Briefcase },
+  { key: 'education', label: 'Education', icon: GraduationCap },
+  { key: 'documents', label: 'Documents', icon: FileText },
+  { key: 'bgv_health', label: 'Bgv & Health', icon: Activity },
+  { key: 'salary', label: 'Salary', icon: Lock },
+];
+
+const ModernInfoTile: React.FC<{ label: string; value?: string | number | null; fullWidth?: boolean }> = ({
+  label,
+  value,
+  fullWidth = false,
+}) => (
+  <View style={[styles.infoTile, fullWidth && { width: '100%' }]}>
+    <Typography style={styles.infoTileLabel}>{label}</Typography>
+    <Typography style={styles.infoTileValue} numberOfLines={2}>
+      {value || '—'}
+    </Typography>
+  </View>
+);
 
 export const SettingScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const dispatch = useAppDispatch();
-  
-  const user = useAppSelector((state) => state.auth.user);
 
-  // Preference switches state
+  const user = useAppSelector((state) => state.auth.user);
+  const { data: profileData } = useProfileQuery();
+
+  const [activeTab, setActiveTab] = useState<ProfileTabKey>('personal');
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [wfhRemindersEnabled, setWfhRemindersEnabled] = useState(true);
 
@@ -44,16 +80,20 @@ export const SettingScreen: React.FC = () => {
     dispatch(logoutAndClear());
   };
 
+  const handleTabSelect = async (tabKey: ProfileTabKey) => {
+    await Haptics.selectionAsync();
+    setActiveTab(tabKey);
+  };
+
   const handleToggle = async (value: boolean, setter: (val: boolean) => void) => {
     await Haptics.selectionAsync();
     setter(value);
   };
 
-  const userRole = user?.roles?.[0] || 'employee';
+  const userRole = (user?.roles?.[0] || user?.role || 'employee').toUpperCase();
 
   return (
     <View style={styles.container}>
-      {/* Universal Premium Background Gradient */}
       <LinearGradient
         colors={['#F0F8FF', '#E6F0FA', '#FFFFFF']}
         start={{ x: 0, y: 0 }}
@@ -64,23 +104,25 @@ export const SettingScreen: React.FC = () => {
       <CustomHeader
         variant={{
           type: 'basic',
-          title: 'Settings',
+          title: 'Settings & Profile',
         }}
       />
-      
+
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
       >
-
-        {/* Profile summary card */}
+        {/* FIRST CARD: Original Redux-bound profile summary card */}
         <Animated.View entering={FadeInUp.delay(100).springify()}>
           <BlurView intensity={60} tint="light" style={styles.glassProfileCard}>
             <View style={styles.heroLeft}>
               <View style={styles.heroIcon}>
-                {user?.profileImage ? (
-                  <Image source={{ uri: user.profileImage }} style={{ width: '100%', height: '100%', borderRadius: normalize(30) }} />
+                {user?.profileImage || profileData?.profile_picture ? (
+                  <Image
+                    source={{ uri: user?.profileImage || profileData?.profile_picture }}
+                    style={{ width: '100%', height: '100%', borderRadius: normalize(18) }}
+                  />
                 ) : (
                   <Typography variant="h2" style={styles.avatarText}>
                     {user?.firstName?.charAt(0) || 'P'}
@@ -97,54 +139,335 @@ export const SettingScreen: React.FC = () => {
               </View>
             </View>
             <View style={styles.roleBadge}>
-              <Typography style={styles.roleText}>{userRole.toUpperCase()}</Typography>
+              <Typography style={styles.roleText}>{userRole}</Typography>
             </View>
           </BlurView>
         </Animated.View>
 
-        {/* Employment Details Section */}
+        {/* Sub-tabs Category Navigation Bar */}
+        <Animated.View entering={FadeInUp.delay(150).springify()}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabScrollContainer}
+          >
+            {PROFILE_TABS.map((tab) => {
+              const IconComp = tab.icon;
+              const isActive = activeTab === tab.key;
+              return (
+                <TouchableOpacity
+                  key={tab.key}
+                  onPress={() => handleTabSelect(tab.key)}
+                  activeOpacity={0.8}
+                >
+                  {isActive ? (
+                    <LinearGradient
+                      colors={[colors.primary, '#4F46E5']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.tabPillActiveGrad}
+                    >
+                      <IconComp size={normalize(15)} color={colors.white} />
+                      <Typography style={styles.tabLabelActive}>
+                        {tab.label}
+                      </Typography>
+                    </LinearGradient>
+                  ) : (
+                    <View style={styles.tabPill}>
+                      <IconComp size={normalize(15)} color={colors.text.secondary} />
+                      <Typography style={styles.tabLabel}>
+                        {tab.label}
+                      </Typography>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </Animated.View>
+
+        {/* Dynamic Tab Content Cards */}
         <Animated.View entering={FadeInUp.delay(200).springify()}>
-          <BlurView intensity={50} tint="light" style={styles.glassSectionCard}>
-            <View style={styles.sectionHeader}>
-              <Briefcase size={normalize(18)} color={colors.black} />
-              <Typography style={styles.sectionTitle}>Employment Details</Typography>
-            </View>
+          {activeTab === 'personal' && (
+            <BlurView intensity={65} tint="light" style={styles.glassSectionCard}>
+              <View style={styles.sectionHeader}>
+                <LinearGradient
+                  colors={['#818CF8', '#6366F1']}
+                  style={styles.sectionIconGrad}
+                >
+                  <User size={normalize(16)} color={colors.white} />
+                </LinearGradient>
+                <Typography style={styles.sectionTitle}>Personal Information</Typography>
+              </View>
 
-            <View style={styles.detailRow}>
-              <Typography style={styles.detailLabel}>Employee ID</Typography>
-              <Typography style={styles.detailValue}>
-                {user?.employeeId || 'EMP-2026-089'}
-              </Typography>
-            </View>
+              <View style={styles.gridContainer}>
+                <ModernInfoTile label="FULL NAME (AS PER AADHAAR)" value={`${user?.firstName || 'System'} ${user?.lastName || 'Admin'}`} fullWidth />
+                <ModernInfoTile label="FIRST NAME" value={user?.firstName || 'System'} />
+                <ModernInfoTile label="MIDDLE NAME" value="—" />
+                <ModernInfoTile label="LAST NAME" value={user?.lastName || 'Admin'} />
+                <ModernInfoTile label="DATE OF BIRTH" value="—" />
+                <ModernInfoTile label="AGE" value="—" />
+                <ModernInfoTile label="GENDER" value="—" />
+                <ModernInfoTile label="BLOOD GROUP" value="O+" />
+                <ModernInfoTile label="NATIONALITY" value="Indian" />
+                <ModernInfoTile label="MARITAL STATUS" value="Single" />
+              </View>
+            </BlurView>
+          )}
 
-            <View style={styles.detailRow}>
-              <Typography style={styles.detailLabel}>Department</Typography>
-              <Typography style={styles.detailValue}>
-                {user?.department || 'Mobile Development'}
-              </Typography>
-            </View>
+          {activeTab === 'contact' && (
+            <>
+              <BlurView intensity={65} tint="light" style={styles.glassSectionCard}>
+                <View style={styles.sectionHeader}>
+                  <LinearGradient
+                    colors={['#60A5FA', '#3B82F6']}
+                    style={styles.sectionIconGrad}
+                  >
+                    <Mail size={normalize(16)} color={colors.white} />
+                  </LinearGradient>
+                  <Typography style={styles.sectionTitle}>Email & Phone</Typography>
+                </View>
+                <View style={styles.gridContainer}>
+                  <ModernInfoTile label="WORK EMAIL" value={user?.email || 'sysadmin@company.com'} fullWidth />
+                  <ModernInfoTile label="PERSONAL EMAIL" value="—" />
+                  <ModernInfoTile label="PERSONAL MOBILE" value={user?.phone || '+91 9876543210'} />
+                  <ModernInfoTile label="ALTERNATE NUMBER" value="—" fullWidth />
+                </View>
+              </BlurView>
 
-            <View style={styles.detailRow}>
-              <Typography style={styles.detailLabel}>Date of Joining</Typography>
-              <Typography style={styles.detailValue}>
-                {user?.dateOfJoining || 'Jan 10, 2025'}
-              </Typography>
-            </View>
+              <BlurView intensity={65} tint="light" style={styles.glassSectionCard}>
+                <View style={styles.sectionHeader}>
+                  <LinearGradient
+                    colors={['#34D399', '#10B981']}
+                    style={styles.sectionIconGrad}
+                  >
+                    <MapPin size={normalize(16)} color={colors.white} />
+                  </LinearGradient>
+                  <Typography style={styles.sectionTitle}>Current Address</Typography>
+                </View>
+                <View style={styles.gridContainer}>
+                  <ModernInfoTile label="ADDRESS LINE 1" value="—" fullWidth />
+                  <ModernInfoTile label="ADDRESS LINE 2" value="—" fullWidth />
+                  <ModernInfoTile label="CITY" value="—" />
+                  <ModernInfoTile label="STATE" value="—" />
+                  <ModernInfoTile label="PIN CODE" value="—" />
+                </View>
+              </BlurView>
 
-            <View style={[styles.detailRow, styles.noBorder]}>
-              <Typography style={styles.detailLabel}>Reporting Manager</Typography>
-              <Typography style={styles.detailValue}>
-                {user?.managerName || 'Rajesh Kumar'}
-              </Typography>
-            </View>
-          </BlurView>
+              <BlurView intensity={65} tint="light" style={styles.glassSectionCard}>
+                <View style={styles.sectionHeader}>
+                  <LinearGradient
+                    colors={['#F87171', '#EF4444']}
+                    style={styles.sectionIconGrad}
+                  >
+                    <Phone size={normalize(16)} color={colors.white} />
+                  </LinearGradient>
+                  <Typography style={styles.sectionTitle}>Emergency Contacts</Typography>
+                </View>
+                <View style={styles.gridContainer}>
+                  <ModernInfoTile label="NAME" value="—" />
+                  <ModernInfoTile label="RELATION" value="—" />
+                  <ModernInfoTile label="PHONE" value="—" />
+                </View>
+              </BlurView>
+            </>
+          )}
+
+          {activeTab === 'work' && (
+            <>
+              <BlurView intensity={65} tint="light" style={styles.glassSectionCard}>
+                <View style={styles.sectionHeader}>
+                  <LinearGradient
+                    colors={['#FBBF24', '#F59E0B']}
+                    style={styles.sectionIconGrad}
+                  >
+                    <Briefcase size={normalize(16)} color={colors.white} />
+                  </LinearGradient>
+                  <Typography style={styles.sectionTitle}>Job Details</Typography>
+                </View>
+                <View style={styles.gridContainer}>
+                  <ModernInfoTile label="EMPLOYEE CODE" value={user?.empCode || user?.employeeId || 'SYS-ADM-001'} />
+                  <ModernInfoTile label="DESIGNATION" value={user?.designation || 'System Administrator'} />
+                  <ModernInfoTile label="DEPARTMENT" value={user?.department || 'IT & Operations'} />
+                  <ModernInfoTile label="EMPLOYMENT TYPE" value="Full Time" />
+                  <ModernInfoTile label="STATUS" value="Active" />
+                  <ModernInfoTile label="ROLE" value={userRole} />
+                  <ModernInfoTile label="SHIFT" value="Day Shift (09:00 - 18:00)" fullWidth />
+                  <ModernInfoTile label="DATE OF JOINING" value={user?.dateOfJoining || '10 Jan 2025'} />
+                  <ModernInfoTile label="CONFIRMATION DATE" value="—" />
+                  <ModernInfoTile label="PROBATION PERIOD" value="3 months" />
+                  <ModernInfoTile label="WORKING DAYS/WEEK" value="5 days" />
+                  <ModernInfoTile label="WORK MODE" value="On-site" />
+                  <ModernInfoTile label="WORK LOCATION" value="Headquarters" />
+                </View>
+              </BlurView>
+
+              <BlurView intensity={65} tint="light" style={styles.glassSectionCard}>
+                <View style={styles.sectionHeader}>
+                  <LinearGradient
+                    colors={['#2DD4BF', '#14B8A6']}
+                    style={styles.sectionIconGrad}
+                  >
+                    <CreditCard size={normalize(16)} color={colors.white} />
+                  </LinearGradient>
+                  <Typography style={styles.sectionTitle}>Bank Account Details</Typography>
+                </View>
+                <View style={styles.gridContainer}>
+                  <ModernInfoTile label="BANK NAME" value="—" />
+                  <ModernInfoTile label="ACCOUNT NUMBER" value="—" />
+                  <ModernInfoTile label="ACCOUNT TYPE" value="Savings" />
+                  <ModernInfoTile label="IFSC CODE" value="—" />
+                </View>
+              </BlurView>
+            </>
+          )}
+
+          {activeTab === 'education' && (
+            <BlurView intensity={65} tint="light" style={styles.glassSectionCard}>
+              <View style={styles.sectionHeader}>
+                <LinearGradient
+                  colors={['#A78BFA', '#8B5CF6']}
+                  style={styles.sectionIconGrad}
+                >
+                  <GraduationCap size={normalize(16)} color={colors.white} />
+                </LinearGradient>
+                <Typography style={styles.sectionTitle}>Education</Typography>
+              </View>
+              <View style={styles.emptyContainer}>
+                <GraduationCap size={normalize(32)} color={colors.text.muted} style={{ marginBottom: normalize(8) }} />
+                <Typography style={{ fontSize: normalize(13), color: colors.text.muted, fontWeight: '600' }}>
+                  No education records found
+                </Typography>
+              </View>
+            </BlurView>
+          )}
+
+          {activeTab === 'documents' && (
+            <BlurView intensity={65} tint="light" style={styles.glassSectionCard}>
+              <View style={styles.sectionHeader}>
+                <LinearGradient
+                  colors={['#C084FC', '#A855F7']}
+                  style={styles.sectionIconGrad}
+                >
+                  <FileText size={normalize(16)} color={colors.white} />
+                </LinearGradient>
+                <Typography style={styles.sectionTitle}>Identity Documents</Typography>
+              </View>
+
+              <View style={{ gap: normalize(14) }}>
+                {/* Aadhaar Section */}
+                <View style={styles.docSubSection}>
+                  <Typography style={styles.docSubHeader}>AADHAAR</Typography>
+                  <View style={styles.gridContainer}>
+                    <ModernInfoTile label="AADHAAR NUMBER" value="—" />
+                    <View style={styles.infoTile}>
+                      <Typography style={styles.infoTileLabel}>AADHAAR DOCUMENT</Typography>
+                      <TouchableOpacity style={styles.docBadgeBtn} activeOpacity={0.7}>
+                        <Eye size={12} color={colors.primary} />
+                        <Typography style={styles.docBadgeText}>View Aadhaar</Typography>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+
+                {/* PAN Section */}
+                <View style={styles.docSubSection}>
+                  <Typography style={styles.docSubHeader}>PAN</Typography>
+                  <View style={styles.gridContainer}>
+                    <ModernInfoTile label="PAN NUMBER" value="—" />
+                    <View style={styles.infoTile}>
+                      <Typography style={styles.infoTileLabel}>PAN DOCUMENT</Typography>
+                      <TouchableOpacity style={styles.docBadgeBtn} activeOpacity={0.7}>
+                        <Eye size={12} color={colors.primary} />
+                        <Typography style={styles.docBadgeText}>View PAN</Typography>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+
+                {/* UAN Section */}
+                <View style={{ paddingTop: normalize(4) }}>
+                  <Typography style={styles.docSubHeader}>UAN / PF</Typography>
+                  <View style={styles.gridContainer}>
+                    <ModernInfoTile label="UAN NUMBER" value="—" />
+                  </View>
+                </View>
+              </View>
+            </BlurView>
+          )}
+
+          {activeTab === 'bgv_health' && (
+            <>
+              {/* Card 1: Background Verification */}
+              <BlurView intensity={65} tint="light" style={styles.glassSectionCard}>
+                <View style={styles.sectionHeader}>
+                  <LinearGradient
+                    colors={['#A78BFA', '#8B5CF6']}
+                    style={styles.sectionIconGrad}
+                  >
+                    <ShieldCheck size={normalize(16)} color={colors.white} />
+                  </LinearGradient>
+                  <Typography style={styles.sectionTitle}>Background Verification</Typography>
+                </View>
+                <View style={styles.gridContainer}>
+                  <ModernInfoTile label="BGV STATUS" value="Not Initiated" />
+                  <ModernInfoTile label="POLICE VERIFICATION" value="No" />
+                  <ModernInfoTile label="PREVIOUS COMPANY VERIFICATION" value="—" fullWidth />
+                  <ModernInfoTile label="HR OUTCOME" value="—" />
+                  <ModernInfoTile label="VERIFICATION REMARKS" value="—" fullWidth />
+                </View>
+              </BlurView>
+
+              {/* Card 2: Health & Disability */}
+              <BlurView intensity={65} tint="light" style={styles.glassSectionCard}>
+                <View style={styles.sectionHeader}>
+                  <LinearGradient
+                    colors={['#FB7185', '#F43F5E']}
+                    style={styles.sectionIconGrad}
+                  >
+                    <Heart size={normalize(16)} color={colors.white} />
+                  </LinearGradient>
+                  <Typography style={styles.sectionTitle}>Health & Disability</Typography>
+                </View>
+                <View style={styles.gridContainer}>
+                  <ModernInfoTile label="KNOWN MEDICAL CONDITIONS" value="—" fullWidth />
+                  <ModernInfoTile label="IS DISABLED?" value="No" />
+                </View>
+              </BlurView>
+            </>
+          )}
+
+          {activeTab === 'salary' && (
+            <BlurView intensity={65} tint="light" style={styles.glassSectionCard}>
+              <View style={styles.sectionHeader}>
+                <LinearGradient
+                  colors={['#34D399', '#10B981']}
+                  style={styles.sectionIconGrad}
+                >
+                  <Lock size={normalize(16)} color={colors.white} />
+                </LinearGradient>
+                <Typography style={styles.sectionTitle}>Salary & Compensation</Typography>
+              </View>
+              <View style={styles.gridContainer}>
+                <ModernInfoTile label="BASIC SALARY" value="Confidential" />
+                <ModernInfoTile label="HRA" value="Confidential" />
+                <ModernInfoTile label="SPECIAL ALLOWANCES" value="Confidential" />
+                <ModernInfoTile label="GROSS SALARY" value="Confidential" />
+              </View>
+            </BlurView>
+          )}
         </Animated.View>
 
         {/* Preferences Section */}
         <Animated.View entering={FadeInUp.delay(300).springify()}>
           <BlurView intensity={50} tint="light" style={styles.glassSectionCard}>
             <View style={styles.sectionHeader}>
-              <Bell size={normalize(18)} color={colors.black} />
+              <LinearGradient
+                colors={['#60A5FA', '#3B82F6']}
+                style={styles.sectionIconGrad}
+              >
+                <Bell size={normalize(16)} color={colors.white} />
+              </LinearGradient>
               <Typography style={styles.sectionTitle}>App Preferences</Typography>
             </View>
 
@@ -180,16 +503,21 @@ export const SettingScreen: React.FC = () => {
           </BlurView>
         </Animated.View>
 
-        {/* Account Settings Menu */}
-        <Animated.View entering={FadeInUp.delay(400).springify()}>
+        {/* Security Menu */}
+        <Animated.View entering={FadeInUp.delay(350).springify()}>
           <BlurView intensity={50} tint="light" style={styles.glassSectionCard}>
             <View style={styles.sectionHeader}>
-              <Shield size={normalize(18)} color={colors.black} />
+              <LinearGradient
+                colors={['#9CA3AF', '#4B5563']}
+                style={styles.sectionIconGrad}
+              >
+                <Shield size={normalize(16)} color={colors.white} />
+              </LinearGradient>
               <Typography style={styles.sectionTitle}>Security</Typography>
             </View>
 
-            <TouchableOpacity 
-              style={styles.menuItem} 
+            <TouchableOpacity
+              style={styles.menuItem}
               activeOpacity={0.8}
               onPress={() => Haptics.selectionAsync()}
             >
@@ -203,11 +531,11 @@ export const SettingScreen: React.FC = () => {
         </Animated.View>
 
         {/* Logout button */}
-        <Animated.View entering={FadeInUp.delay(500).springify()}>
+        <Animated.View entering={FadeInUp.delay(400).springify()}>
           <TouchableOpacity
             onPress={handleLogout}
             activeOpacity={0.85}
-            style={{ marginTop: normalize(10) }}
+            style={{ marginTop: normalize(6) }}
           >
             <LinearGradient
               colors={['#FEF2F2', '#FEE2E2']}
@@ -231,22 +559,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   contentContainer: {
-    paddingHorizontal: normalize(20),
+    paddingHorizontal: normalize(16),
     paddingBottom: normalize(120),
     paddingTop: normalize(10),
   },
-  
-  /* --- Profile Card --- */
+
+  /* --- Top Hero Profile Card (Restored Original Redux Binding) --- */
   glassProfileCard: {
     borderRadius: normalize(24),
     padding: normalize(20),
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: normalize(20),
+    marginBottom: normalize(16),
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.8)',
-    backgroundColor: 'rgba(255,255,255,0.45)',
+    borderColor: 'rgba(255,255,255,0.85)',
+    backgroundColor: 'rgba(255,255,255,0.5)',
     overflow: 'hidden',
   },
   heroLeft: {
@@ -292,23 +620,70 @@ const styles = StyleSheet.create({
     letterSpacing: normalize(0.5),
   },
 
+  /* --- Sub-Tabs Scroll Bar --- */
+  tabScrollContainer: {
+    gap: normalize(8),
+    paddingBottom: normalize(14),
+  },
+  tabPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: normalize(6),
+    paddingHorizontal: normalize(14),
+    paddingVertical: normalize(8),
+    borderRadius: normalize(20),
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.8)',
+  },
+  tabPillActiveGrad: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: normalize(6),
+    paddingHorizontal: normalize(14),
+    paddingVertical: normalize(8),
+    borderRadius: normalize(20),
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  tabLabel: {
+    fontSize: normalize(13),
+    fontWeight: '600',
+    color: colors.text.secondary,
+  },
+  tabLabelActive: {
+    fontSize: normalize(13),
+    fontWeight: '700',
+    color: colors.white,
+  },
+
   /* --- Section Cards --- */
   glassSectionCard: {
-    borderRadius: normalize(24),
-    padding: normalize(20),
-    marginBottom: normalize(16),
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.8)',
-    backgroundColor: 'rgba(255,255,255,0.5)',
+    borderRadius: normalize(20),
+    padding: normalize(16),
+    marginBottom: normalize(14),
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
     overflow: 'hidden',
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: normalize(1),
-    borderColor: 'rgba(0,0,0,0.06)',
+    borderBottomWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.6)',
     paddingBottom: normalize(12),
-    marginBottom: normalize(12),
+    marginBottom: normalize(14),
+  },
+  sectionIconGrad: {
+    width: normalize(32),
+    height: normalize(32),
+    borderRadius: normalize(10),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sectionTitle: {
     color: colors.black,
@@ -316,32 +691,82 @@ const styles = StyleSheet.create({
     fontSize: normalize(15),
     marginLeft: normalize(10),
   },
-  detailRow: {
+
+  /* --- Modern Grid Items (Mini Tiles) --- */
+  gridContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: normalize(12),
-    borderBottomWidth: normalize(1),
-    borderColor: 'rgba(0,0,0,0.04)',
+    flexWrap: 'wrap',
+    gap: normalize(10),
   },
-  detailLabel: {
-    color: colors.text.secondary,
-    fontSize: normalize(13),
-    fontWeight: '600',
+  infoTile: {
+    width: '48%',
+    backgroundColor: 'rgba(248, 250, 252, 0.85)',
+    borderRadius: normalize(12),
+    padding: normalize(10),
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.8)',
   },
-  detailValue: {
-    color: colors.black,
+  infoTileLabel: {
+    fontSize: normalize(10),
     fontWeight: '700',
-    fontSize: normalize(13),
+    color: colors.text.muted,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
-  
+  infoTileValue: {
+    fontSize: normalize(13),
+    fontWeight: '700',
+    color: colors.text.primary,
+    marginTop: normalize(3),
+  },
+
+  /* --- Empty State --- */
+  emptyContainer: {
+    paddingVertical: normalize(24),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* --- Document Badges --- */
+  docSubSection: {
+    borderBottomWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.6)',
+    paddingBottom: normalize(12),
+  },
+  docSubHeader: {
+    fontSize: normalize(11),
+    fontWeight: '800',
+    color: colors.primary,
+    letterSpacing: 0.5,
+    marginBottom: normalize(10),
+  },
+  docBadgeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: normalize(4),
+    marginTop: normalize(4),
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    paddingHorizontal: normalize(8),
+    paddingVertical: normalize(4),
+    borderRadius: normalize(6),
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.25)',
+  },
+  docBadgeText: {
+    fontSize: normalize(11),
+    fontWeight: '700',
+    color: colors.primary,
+  },
+
   /* --- Switches --- */
   switchRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: normalize(10),
-    borderBottomWidth: normalize(1),
-    borderColor: 'rgba(0,0,0,0.04)',
+    borderBottomWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.5)',
   },
   switchLabel: {
     color: colors.black,
@@ -350,10 +775,10 @@ const styles = StyleSheet.create({
   },
   switchSublabel: {
     color: colors.text.secondary,
-    marginTop: normalize(4),
+    marginTop: normalize(2),
     fontWeight: '500',
   },
-  
+
   /* --- Menu --- */
   menuItem: {
     flexDirection: 'row',
@@ -375,15 +800,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
     paddingBottom: 0,
   },
-  
+
   /* --- Logout Button --- */
   logoutButtonGlass: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: normalize(16),
-    borderRadius: normalize(18),
-    borderWidth: 1.5,
+    paddingVertical: normalize(14),
+    borderRadius: normalize(16),
+    borderWidth: 1,
     borderColor: 'rgba(239, 68, 68, 0.2)',
     shadowColor: colors.error,
     shadowOffset: { width: 0, height: 4 },

@@ -141,11 +141,20 @@ export const API_ENDPOINTS = {
     })(),
   },
   HRMS: {
+    MASTER: {
+      DEPARTMENT: '/master?type=department',
+    },
     LEAVE: {
-      BALANCE: '/hrms/leave/balance/',
-      REQUESTS: '/hrms/leave/requests/',
-      APPLY: '/hrms/leave/apply/',
-      ACTION: (requestId: string) => `/hrms/leave/action/${requestId}/`,
+      BALANCE: '/leave/my-balances',
+      REQUESTS: '/leave/my-requests',
+      ADMIN_REQUESTS: '/leave/admin/requests',
+      ADMIN_BALANCES: '/leave/admin/balances',
+      TYPES_DROPDOWN: '/leave/types/dropdown',
+      MY_LEAVE_DATES: '/leave/my-leave-dates',
+      APPLY: '/leave/apply',
+      CANCEL: (requestId: string) => `/leave/${requestId}/cancel`,
+      ACTION: (requestId: string) => `/leave/action/${requestId}`,
+      RESOLVE: (requestId: string) => `/leave/${requestId}/resolve`,
     },
     ATTENDANCE: {
       TODAY:    '/hrms/attendance/today/',
@@ -160,6 +169,7 @@ export const API_ENDPOINTS = {
     },
     EMPLOYEES: {
       BASE: '/hrms/employees/',
+      DROPDOWN: '/employees/dropdown',
       DETAIL: (id: string) => `/hrms/employees/${id}/`,
       BY_DEPARTMENT: (dept: string) => `/hrms/employees/?department=${encodeURIComponent(dept)}`,
     },

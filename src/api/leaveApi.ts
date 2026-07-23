@@ -27,23 +27,149 @@ export interface LeaveSummaryResponse {
 
 export interface LeaveRequest {
   id: string;
-  employee_name: string;
-  employee_role: string;
-  leave_type: 'Casual' | 'Sick' | 'Earned' | 'WFH';
-  start_date: string;
-  end_date: string;
-  total_days: number;
-  reason: string;
-  status: 'Pending' | 'Approved' | 'Rejected';
-  created_at: string;
+  leaveTypeId?: string;
+  leaveTypeName?: string;
+  leaveTypeCode?: string;
+  startDate?: string;
+  endDate?: string;
+  days?: string | number;
+  dayType?: string;
+  reason?: string;
+  status: string;
+  documentKey?: string | null;
+  appliedAt?: string;
+  rejectionReason?: string | null;
+  createdAt?: string;
+  employeeId?: string;
+  employeeName?: string;
+  empCode?: string;
+  tlApproverName?: string | null;
+  hrApproverName?: string | null;
+  adminApproverName?: string | null;
+  rejectedByName?: string | null;
+  
+  // Legacy fields
+  employee_name?: string;
+  employee_role?: string;
+  leave_type?: string;
+  start_date?: string;
+  end_date?: string;
+  total_days?: number;
+  created_at?: string;
+}
+
+export interface AdminLeaveBalance {
+  id: string;
+  employeeId?: string;
+  employeeName?: string;
+  empCode?: string;
+  departmentId?: string | null;
+  departmentName?: string | null;
+  leaveTypeId?: string;
+  leaveTypeName?: string;
+  leaveTypeCode?: string;
+  leaveTypeCategory?: string;
+  monthlyQuota?: string | null;
+  yearlyQuota?: string | number | null;
+  year?: number;
+  openingBalance?: string;
+  earned?: string;
+  used?: string;
+  encashed?: string;
+  carriedForward?: string;
+  pending?: number;
+  totalEntitled?: number;
+  accrued?: number;
+  availableBalance?: number;
+  adjusted?: number;
+}
+
+export interface LeaveFilterParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  leaveTypeId?: string;
+  fromDate?: string;
+  toDate?: string;
+  departmentFilter?: string;
+  employeeFilter?: string;
+  yearFilter?: string;
+}
+
+export interface LeaveTypeOption {
+  value: string;
+  label: string;
+  leave_code?: string;
+  encashment?: { enabled: boolean };
+  yearlyQuota?: string;
+  isSystemGenerated?: boolean;
+  isUnlimited?: boolean;
 }
 
 export const leaveApi = {
   getLeaveSummary: async (): Promise<LeaveSummaryResponse> => {
     try {
       const response = await ApiClient.get<any>(API_ENDPOINTS.HRMS.LEAVE.BALANCE);
-      return (response as any).data || response;
-    } catch (e) {
+      let responseData = null;
+
+      // Axios interceptor might return the body directly (response) or the axios object
+      const body = response.data !== undefined && response.status !== undefined ? response.data : response;
+      
+      if (Array.isArray(body)) {
+        responseData = body;
+      } else if (body && Array.isArray(body.data)) {
+        responseData = body.data;
+      }
+
+      if (responseData) {
+        let totalAvailable = 0;
+        let usedThisYear = 0;
+        let totalPending = 0;
+        const approvedThisMonth = 0;
+
+        const balances: DetailedLeaveBalance[] = responseData.map((item: any) => {
+          const available = item.availableBalance ?? 0;
+          const used = parseFloat(item.used) || 0;
+          const pending = item.pending ?? 0;
+          const accrued = item.accrued ?? 0;
+          const entitled = item.totalEntitled ?? 0;
+          const adjusted = item.adjusted ?? 0;
+          
+          if (item.leaveTypeCode !== 'LWP') {
+             totalAvailable += available;
+          }
+          usedThisYear += used;
+          totalPending += pending;
+
+          return {
+            code: item.leaveTypeCode,
+            name: item.leaveTypeName,
+            isPaid: item.isPaid ?? true,
+            available: available,
+            accrued: accrued,
+            entitled: entitled,
+            pending: pending,
+            used: used,
+            adjusted: adjusted,
+          };
+        });
+
+        return {
+          metrics: {
+            totalAvailable,
+            usedThisYear,
+            totalPending,
+            approvedThisMonth,
+          },
+          balances,
+        };
+      }
+
+      console.warn('getLeaveSummary: Unrecognized response format', body ? Object.keys(body) : body);
+      return body;
+    } catch (e: any) {
+      console.error('getLeaveSummary failed:', e?.message || e);
       // Mock fallback matching exactly the user's screenshot
       return {
         metrics: {
@@ -63,75 +189,127 @@ export const leaveApi = {
     }
   },
 
-  getLeaveRequests: async (type: 'my' | 'team'): Promise<LeaveRequest[]> => {
+  getLeaveRequests: async (
+    type: 'my' | 'team',
+    page = 1,
+    limit = 10,
+    filters?: LeaveFilterParams
+  ): Promise<{ data: LeaveRequest[]; meta: any }> => {
     try {
-      const response = await ApiClient.get<any>(`${API_ENDPOINTS.HRMS.LEAVE.REQUESTS}?type=${type}`);
-      return (response as any).data || response;
+      const queryParams = new URLSearchParams();
+      queryParams.append('page', String(page));
+      queryParams.append('limit', String(limit));
+
+      if (filters?.search) queryParams.append('search', filters.search);
+
+      const filterObj: Record<string, string> = {};
+      if (filters?.status) filterObj.status = filters.status;
+      if (filters?.leaveTypeId) filterObj.leaveTypeId = filters.leaveTypeId;
+      if (filters?.fromDate) filterObj.fromDate = filters.fromDate;
+      if (filters?.toDate) filterObj.toDate = filters.toDate;
+
+      if (Object.keys(filterObj).length > 0) {
+        queryParams.append('filters', JSON.stringify(filterObj));
+      }
+
+      const endpoint = `${API_ENDPOINTS.HRMS.LEAVE.REQUESTS}?${queryParams.toString()}`;
+      const response = await ApiClient.get<any>(endpoint);
+      const body = response.data !== undefined && response.status !== undefined ? response.data : response;
+      
+      let data = [];
+      if (Array.isArray(body.data)) {
+        data = body.data;
+      } else if (Array.isArray(body)) {
+        data = body;
+      }
+
+      const mapped = data.map((item: any) => ({
+        ...item,
+        id: item.id || `mock_${Math.random()}`,
+        leaveTypeName: item.leaveTypeName || item.leave_type || 'Leave',
+        leaveTypeCode: item.leaveTypeCode || item.leave_type_code || '',
+        startDate: item.startDate || item.start_date || '',
+        endDate: item.endDate || item.end_date || '',
+        days: item.days ?? item.total_days ?? 1,
+        dayType: item.dayType || item.day_type || 'full_day',
+        reason: item.reason || '',
+        status: item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1) : 'Pending',
+        appliedAt: item.appliedAt || item.created_at || item.createdAt || '',
+        employeeName: item.employeeName || item.employee_name || 'N/A',
+        empCode: item.empCode || item.employee_role || '',
+        
+        // Legacy compatibility
+        employee_name: item.employeeName || item.employee_name || 'N/A',
+        employee_role: item.empCode || item.employee_role || '',
+        leave_type: item.leaveTypeName || item.leave_type || 'Leave',
+        start_date: item.startDate || item.start_date || '',
+        end_date: item.endDate || item.end_date || '',
+        total_days: item.days ? parseFloat(item.days) : item.total_days || 1,
+        created_at: item.createdAt || item.created_at || '',
+      }));
+
+      return {
+        data: mapped,
+        meta: body.meta || { page, limit, totalPages: 1 },
+      };
     } catch (e) {
-      // Mock list of requests
-      const mockRequests: LeaveRequest[] = [
-        {
-          id: 'req_1',
-          employee_name: 'Priya Sharma',
-          employee_role: 'Developer',
-          leave_type: 'Sick',
-          start_date: '2026-07-10',
-          end_date: '2026-07-11',
-          total_days: 2,
-          reason: 'High fever',
-          status: 'Approved',
-          created_at: '2026-07-09T10:00:00Z',
-        },
-        {
-          id: 'req_2',
-          employee_name: 'Priya Sharma',
-          employee_role: 'Developer',
-          leave_type: 'WFH',
-          start_date: '2026-07-15',
-          end_date: '2026-07-16',
-          total_days: 2,
-          reason: 'Plumber visit at home',
-          status: 'Pending',
-          created_at: '2026-07-13T14:30:00Z',
-        },
-      ];
+      console.error('getLeaveRequests failed:', e);
+      return {
+        data: [],
+        meta: { page: 1, limit, totalPages: 1 },
+      };
+    }
+  },
 
-      const mockTeamRequests: LeaveRequest[] = [
-        {
-          id: 'req_3',
-          employee_name: 'Rahul Verma',
-          employee_role: 'Developer',
-          leave_type: 'Casual',
-          start_date: '2026-07-20',
-          end_date: '2026-07-22',
-          total_days: 3,
-          reason: 'Family function in hometown',
-          status: 'Pending',
-          created_at: '2026-07-13T09:15:00Z',
-        },
-        {
-          id: 'req_4',
-          employee_name: 'Amit Patel',
-          employee_role: 'QA Engineer',
-          leave_type: 'WFH',
-          start_date: '2026-07-18',
-          end_date: '2026-07-18',
-          total_days: 1,
-          reason: 'Personal work',
-          status: 'Approved',
-          created_at: '2026-07-12T11:00:00Z',
-        },
-      ];
-
-      return type === 'my' ? mockRequests : mockTeamRequests;
+  getMyLeaveDates: async (): Promise<string[]> => {
+    try {
+      const response = await ApiClient.get<any>(API_ENDPOINTS.HRMS.LEAVE.MY_LEAVE_DATES);
+      const body = response.data !== undefined && response.status !== undefined ? response.data : response;
+      if (Array.isArray(body?.dates)) {
+        return body.dates;
+      }
+      if (Array.isArray(body?.data)) {
+        return body.data;
+      }
+      if (Array.isArray(body)) {
+        return body;
+      }
+      return [];
+    } catch (e: any) {
+      console.error('getMyLeaveDates error:', e?.response?.data || e?.message || e);
+      return [];
     }
   },
 
   applyLeave: async (
-    leaveData: Partial<LeaveRequest>,
-  ): Promise<{ status: boolean; message: string; data?: LeaveRequest }> => {
-    const response = await ApiClient.post<any>(API_ENDPOINTS.HRMS.LEAVE.APPLY, leaveData);
-    return (response as any).data || response;
+    leaveData: {
+      leaveTypeId: string;
+      startDate: string;
+      endDate: string;
+      days: string | number;
+      dayType: string;
+      reason: string;
+    },
+  ): Promise<any> => {
+    try {
+      const response = await ApiClient.post<any>(API_ENDPOINTS.HRMS.LEAVE.APPLY, leaveData);
+      const body = response.data !== undefined && response.status !== undefined ? response.data : response;
+      return body;
+    } catch (e: any) {
+      console.error('applyLeave error:', e?.response?.data || e?.message || e);
+      throw e;
+    }
+  },
+
+  cancelLeave: async (requestId: string): Promise<any> => {
+    try {
+      const response = await ApiClient.patch<any>(API_ENDPOINTS.HRMS.LEAVE.CANCEL(requestId));
+      const body = response.data !== undefined && response.status !== undefined ? response.data : response;
+      return body;
+    } catch (e: any) {
+      console.error('cancelLeave error:', e?.response?.data || e?.message || e);
+      throw e;
+    }
   },
 
   approveRejectLeave: async (
@@ -140,6 +318,223 @@ export const leaveApi = {
   ): Promise<{ status: boolean; message: string }> => {
     const response = await ApiClient.post<any>(API_ENDPOINTS.HRMS.LEAVE.ACTION(requestId), { action });
     return (response as any).data || response;
+  },
+
+  getAdminLeaveRequests: async (
+    page = 1,
+    limit = 10,
+    filters?: LeaveFilterParams
+  ): Promise<{ data: LeaveRequest[]; summary: any; total: number; page: number; limit: number; totalPages: number; hasMore: boolean }> => {
+    try {
+      const queryParams = new URLSearchParams();
+      queryParams.append('page', String(page));
+      queryParams.append('limit', String(limit));
+
+      if (filters?.search) queryParams.append('search', filters.search);
+
+      const filterObj: Record<string, string> = {};
+      if (filters?.status) filterObj.status = filters.status;
+      if (filters?.leaveTypeId) filterObj.leaveTypeId = filters.leaveTypeId;
+      if (filters?.fromDate) filterObj.fromDate = filters.fromDate;
+      if (filters?.toDate) filterObj.toDate = filters.toDate;
+      if (filters?.departmentFilter) filterObj.departmentId = filters.departmentFilter;
+      if (filters?.employeeFilter) filterObj.employeeId = filters.employeeFilter;
+
+      if (Object.keys(filterObj).length > 0) {
+        queryParams.append('filters', JSON.stringify(filterObj));
+      }
+
+      const endpoint = `${API_ENDPOINTS.HRMS.LEAVE.ADMIN_REQUESTS}?${queryParams.toString()}`;
+      const response = await ApiClient.get<any>(endpoint);
+      const body = response.data !== undefined && response.status !== undefined ? response.data : response;
+
+      let data = [];
+      if (Array.isArray(body?.data)) {
+        data = body.data;
+      } else if (Array.isArray(body)) {
+        data = body;
+      }
+
+      const summary = body?.summary || {
+        total: body?.total || data.length,
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        cancelled: 0,
+      };
+
+      const mapped = data.map((item: any) => ({
+        ...item,
+        id: item.id || `admin_${Math.random()}`,
+        leaveTypeName: item.leaveTypeName || item.leave_type || 'Leave',
+        leaveTypeCode: item.leaveTypeCode || item.leave_type_code || '',
+        startDate: item.startDate || item.start_date || '',
+        endDate: item.endDate || item.end_date || '',
+        days: item.days ?? item.total_days ?? 1,
+        dayType: item.dayType || item.day_type || 'full_day',
+        reason: item.reason || '',
+        status: item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1) : 'Pending',
+        appliedAt: item.appliedAt || item.created_at || item.createdAt || '',
+        employeeName: item.employeeName || item.employee_name || 'N/A',
+        empCode: item.empCode || item.employee_role || '',
+      }));
+
+      const totalPages = body?.totalPages || 1;
+      const hasMore = page < totalPages;
+
+      return {
+        data: mapped,
+        summary,
+        total: body?.total || mapped.length,
+        page,
+        limit,
+        totalPages,
+        hasMore,
+      };
+    } catch (error) {
+      console.error('getAdminLeaveRequests error:', error);
+      return {
+        data: [],
+        summary: { total: 0, pending: 0, approved: 0, rejected: 0, cancelled: 0 },
+        total: 0,
+        page: 1,
+        limit,
+        totalPages: 1,
+        hasMore: false,
+      };
+    }
+  },
+
+  getAdminLeaveBalances: async (
+    page = 1,
+    limit = 10,
+    filters?: LeaveFilterParams
+  ): Promise<{ data: AdminLeaveBalance[]; total: number; page: number; limit: number; totalPages: number; hasMore: boolean }> => {
+    try {
+      const queryParams = new URLSearchParams();
+      queryParams.append('page', String(page));
+      queryParams.append('limit', String(limit));
+
+      if (filters?.search) queryParams.append('search', filters.search);
+
+      const filterObj: Record<string, string> = {};
+      if (filters?.status) filterObj.status = filters.status;
+      if (filters?.leaveTypeId) filterObj.leaveTypeId = filters.leaveTypeId;
+      if (filters?.fromDate) filterObj.fromDate = filters.fromDate;
+      if (filters?.toDate) filterObj.toDate = filters.toDate;
+      if (filters?.departmentFilter) filterObj.departmentId = filters.departmentFilter;
+      if (filters?.employeeFilter) filterObj.employeeId = filters.employeeFilter;
+      if (filters?.yearFilter) filterObj.year = filters.yearFilter;
+
+      if (Object.keys(filterObj).length > 0) {
+        queryParams.append('filters', JSON.stringify(filterObj));
+      }
+
+      const endpoint = `${API_ENDPOINTS.HRMS.LEAVE.ADMIN_BALANCES}?${queryParams.toString()}`;
+      const response = await ApiClient.get<any>(endpoint);
+      const body = response.data !== undefined && response.status !== undefined ? response.data : response;
+
+      let data: AdminLeaveBalance[] = [];
+      if (Array.isArray(body?.data)) {
+        data = body.data;
+      } else if (Array.isArray(body)) {
+        data = body;
+      }
+
+      const totalPages = body?.totalPages || body?.meta?.totalPages || 1;
+      const hasMore = page < totalPages;
+
+      return {
+        data,
+        total: body?.total || body?.meta?.total || data.length,
+        page: body?.page || body?.meta?.page || page,
+        limit: body?.limit || body?.meta?.limit || limit,
+        totalPages,
+        hasMore,
+      };
+    } catch (error) {
+      console.error('getAdminLeaveBalances error:', error);
+      return {
+        data: [],
+        total: 0,
+        page: 1,
+        limit,
+        totalPages: 1,
+        hasMore: false,
+      };
+    }
+  },
+
+  getLeaveTypesDropdown: async (): Promise<LeaveTypeOption[]> => {
+    try {
+      const response = await ApiClient.get<any>(API_ENDPOINTS.HRMS.LEAVE.TYPES_DROPDOWN);
+      const body = response.data !== undefined && response.status !== undefined ? response.data : response;
+      let data = [];
+      if (Array.isArray(body)) {
+        data = body;
+      } else if (body && Array.isArray(body.data)) {
+        data = body.data;
+      }
+      return data;
+    } catch (e) {
+      console.error('getLeaveTypesDropdown failed:', e);
+      return [];
+    }
+  },
+  resolveLeaveRequest: async (
+    requestId: string,
+    status: 'approved' | 'rejected',
+    rejectionReason?: string
+  ) => {
+    try {
+      const payload: any = { status };
+      if (status === 'rejected') {
+        payload.rejectionReason = rejectionReason || '';
+      }
+      const response = await ApiClient.post<any>(
+        API_ENDPOINTS.HRMS.LEAVE.RESOLVE(requestId),
+        payload
+      );
+      const body = response.data !== undefined && response.status !== undefined ? response.data : response;
+      return body;
+    } catch (e: any) {
+      console.error('resolveLeaveRequest error:', e?.response?.data || e?.message || e);
+      throw e;
+    }
+  },
+  getDepartmentDropdownOptions: async (): Promise<Array<{ label: string; value: string }>> => {
+    try {
+      const response = await ApiClient.get<any>(API_ENDPOINTS.HRMS.MASTER.DEPARTMENT);
+      const body = response.data !== undefined && response.status !== undefined ? response.data : response;
+      const list = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : [];
+      return list.map((item: any) => ({
+        label: item.name || item.label || item.code || 'Department',
+        value: item.id || item.value || '',
+      }));
+    } catch (e: any) {
+      console.error('getDepartmentDropdownOptions error:', e?.response?.data || e?.message || e);
+      return [];
+    }
+  },
+
+  getEmployeeDropdownOptions: async (): Promise<Array<{ label: string; value: string }>> => {
+    try {
+      const response = await ApiClient.get<any>(API_ENDPOINTS.HRMS.EMPLOYEES.DROPDOWN);
+      const body = response.data !== undefined && response.status !== undefined ? response.data : response;
+      const list = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : [];
+      return list.map((item: any) => {
+        const empCode = item.employeeCode || item.empCode || item.employee_id;
+        const name = item.label || item.name || `${item.first_name || ''} ${item.last_name || ''}`.trim() || 'Employee';
+        const codeSuffix = empCode ? ` (${empCode})` : '';
+        return {
+          label: `${name}${codeSuffix}`,
+          value: item.value || item.id || '',
+        };
+      });
+    } catch (e: any) {
+      console.error('getEmployeeDropdownOptions error:', e?.response?.data || e?.message || e);
+      return [];
+    }
   },
 };
 

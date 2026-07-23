@@ -8,7 +8,7 @@ import {
   type UseQueryOptions,
 } from '@tanstack/react-query';
 import profileApi, { UserProfile } from '../api/profileApi';
-import leaveApi, { LeaveBalance, LeaveRequest } from '../api/leaveApi';
+import leaveApi, { LeaveRequest, LeaveSummaryResponse, LeaveFilterParams, LeaveTypeOption } from '../api/leaveApi';
 import attendanceApi, {
   AttendanceStatus,
   AttendanceLog,
@@ -134,27 +134,140 @@ export const useUpdateProfileMutation = () =>
 /* ============================================================================
    Leave hooks (TanStack Query)
    ============================================================================ */
-export const useLeaveSummaryQuery = () =>
-  useAppQuery<LeaveSummaryResponse>({
-    queryKey: queryKeys.leave.balance,
+export const useLeaveSummaryQuery = () => {
+  const user = useAppSelector((state) => state.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  return useAppQuery<LeaveSummaryResponse>({
+    queryKey: ['leave', 'summary', userId],
     queryFn: () => leaveApi.getLeaveSummary(),
+    enabled: !!userId,
   });
-export const useLeaveRequestsQuery = (type: 'my' | 'team') =>
-  useAppQuery<LeaveRequest[]>({
-    queryKey: queryKeys.leave.requests(type),
-    queryFn: () => leaveApi.getLeaveRequests(type),
+};
+
+export const useLeaveTypesDropdownQuery = () =>
+  useAppQuery<LeaveTypeOption[]>({
+    queryKey: ['leave', 'types', 'dropdown'],
+    queryFn: () => leaveApi.getLeaveTypesDropdown(),
   });
+
+export const useDepartmentDropdownQuery = () =>
+  useAppQuery<Array<{ label: string; value: string }>>({
+    queryKey: ['master', 'departments', 'dropdown'],
+    queryFn: () => leaveApi.getDepartmentDropdownOptions(),
+  });
+
+export const useEmployeeDropdownQuery = () =>
+  useAppQuery<Array<{ label: string; value: string }>>({
+    queryKey: ['master', 'employees', 'dropdown'],
+    queryFn: () => leaveApi.getEmployeeDropdownOptions(),
+  });
+
+export const useLeaveRequestsInfiniteQuery = (
+  type: 'my' | 'team',
+  limit = 10,
+  filters?: LeaveFilterParams
+) => {
+  const user = useAppSelector((state) => state.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  return useInfiniteQuery({
+    queryKey: ['leave', 'requests', type, userId, filters],
+    queryFn: async ({ pageParam = 1 }) => {
+      return leaveApi.getLeaveRequests(type, pageParam as number, limit, filters);
+    },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      const { page, totalPages } = lastPage.meta || {};
+      return page < totalPages ? page + 1 : undefined;
+    },
+    enabled: !!userId,
+  });
+};
+
+export const useAdminLeaveRequestsInfiniteQuery = (
+  limit = 10,
+  filters?: LeaveFilterParams,
+  options?: { enabled?: boolean }
+) => {
+  const user = useAppSelector((state) => state.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated);
+
+  const isEnabled = (options?.enabled !== undefined ? options.enabled : true) && isAuthenticated && !!userId;
+
+  return useInfiniteQuery({
+    queryKey: ['leave', 'admin-requests', userId, filters],
+    queryFn: async ({ pageParam = 1 }) => {
+      return leaveApi.getAdminLeaveRequests(pageParam as number, limit, filters);
+    },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      return lastPage.hasMore ? lastPage.page + 1 : undefined;
+    },
+    enabled: isEnabled,
+  });
+};
+
+export const useAdminLeaveBalancesInfiniteQuery = (
+  limit = 10,
+  filters?: LeaveFilterParams,
+  options?: { enabled?: boolean }
+) => {
+  const user = useAppSelector((state) => state.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated);
+
+  const isEnabled = (options?.enabled !== undefined ? options.enabled : true) && isAuthenticated && !!userId;
+
+  return useInfiniteQuery({
+    queryKey: ['leave', 'admin-balances', userId, filters],
+    queryFn: async ({ pageParam = 1 }) => {
+      return leaveApi.getAdminLeaveBalances(pageParam as number, limit, filters);
+    },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      return lastPage.hasMore ? lastPage.page + 1 : undefined;
+    },
+    enabled: isEnabled,
+  });
+};
 
 export const useApplyLeaveMutation = () =>
   useAppMutation<
-    { status: boolean; message: string; data?: LeaveRequest },
+    any,
     Error,
-    Partial<LeaveRequest>
+    {
+      leaveTypeId: string;
+      startDate: string;
+      endDate: string;
+      days: string | number;
+      dayType: string;
+      reason: string;
+    }
   >({
     mutationFn: (payload) => leaveApi.applyLeave(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.leave.balance });
-      queryClient.invalidateQueries({ queryKey: queryKeys.leave.requests('my') });
+      queryClient.invalidateQueries({ queryKey: ['leave'] });
+    },
+  });
+
+export const useCancelLeaveMutation = () =>
+  useAppMutation<any, Error, string>({
+    mutationFn: (requestId: string) => leaveApi.cancelLeave(requestId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leave'] });
+    },
+  });
+
+export const useResolveLeaveMutation = () =>
+  useAppMutation<
+    any,
+    Error,
+    { requestId: string; status: 'approved' | 'rejected'; rejectionReason?: string }
+  >({
+    mutationFn: ({ requestId, status, rejectionReason }) =>
+      leaveApi.resolveLeaveRequest(requestId, status, rejectionReason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leave'] });
     },
   });
 
@@ -166,28 +279,54 @@ export const useApproveRejectLeaveMutation = () =>
     },
   });
 
+export const useMyLeaveDatesQuery = (options?: { enabled?: boolean }) => {
+  const user = useAppSelector((s) => s.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
+  const isEnabled = (options?.enabled !== undefined ? options.enabled : true) && isAuthenticated && !!userId;
+
+  return useAppQuery<string[]>({
+    queryKey: ['leave', 'my-leave-dates', userId],
+    queryFn: () => leaveApi.getMyLeaveDates(),
+    enabled: isEnabled,
+  });
+};
+
 /* ============================================================================
    Attendance hooks (TanStack Query)
    ============================================================================ */
-export const useTodayAttendanceStatusQuery = (options?: { enabled?: boolean }) =>
-  useAppQuery<AttendanceStatus>({
-    queryKey: queryKeys.attendance.today,
-    queryFn: () => attendanceApi.getTodayStatus(),
-    enabled: options?.enabled,
-  });
+export const useTodayAttendanceStatusQuery = (options?: { enabled?: boolean }) => {
+  const user = useAppSelector((s) => s.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
+  const isEnabled = (options?.enabled !== undefined ? options.enabled : false) && isAuthenticated && !!userId;
 
-export const useAttendanceLogsQuery = (month: string) =>
-  useAppQuery<AttendanceLog[]>({
-    queryKey: queryKeys.attendance.logs(month),
-    queryFn: () => attendanceApi.getAttendanceLogs(month),
+  return useAppQuery<AttendanceStatus>({
+    queryKey: ['attendance', 'today', userId],
+    queryFn: () => attendanceApi.getTodayStatus(),
+    enabled: isEnabled,
   });
+};
+
+export const useAttendanceLogsQuery = (month: string) => {
+  const user = useAppSelector((s) => s.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  return useAppQuery<AttendanceLog[]>({
+    queryKey: ['attendance', 'logs', userId, month],
+    queryFn: () => attendanceApi.getAttendanceLogs(month),
+    enabled: !!userId,
+  });
+};
 
 export const useAttendanceLogsInfiniteQuery = (params: { from: string; to: string; limit?: number }, options?: { enabled?: boolean }) => {
+  const user = useAppSelector((s) => s.auth.user);
+  const userId = user?.id || user?.employeeId || '';
   const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
   const { from, to, limit = 10 } = params;
-  const enabled = options?.enabled !== undefined ? (options.enabled && isAuthenticated) : isAuthenticated;
+  const isEnabled = (options?.enabled !== undefined ? options.enabled : true) && isAuthenticated && !!userId;
+
   return useInfiniteQuery({
-    queryKey: queryKeys.attendance.infiniteLogs(from, to),
+    queryKey: ['attendance', 'infiniteLogs', userId, from, to],
     queryFn: ({ pageParam = 1 }) =>
       attendanceApi.getMyAttendance({
         page: pageParam,
@@ -199,15 +338,24 @@ export const useAttendanceLogsInfiniteQuery = (params: { from: string; to: strin
     getNextPageParam: (lastPage, allPages) => {
       return lastPage.hasMore ? allPages.length + 1 : undefined;
     },
-    enabled: enabled && !!from && !!to,
+    enabled: isEnabled && !!from && !!to,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
   });
 };
 
-export const useTeamAttendanceInfiniteQuery = (params: { from: string; to: string; limit?: number }) => {
+export const useTeamAttendanceInfiniteQuery = (
+  params: { from: string; to: string; limit?: number },
+  options?: { enabled?: boolean }
+) => {
+  const user = useAppSelector((s) => s.auth.user);
+  const userId = user?.id || user?.employeeId || '';
   const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
   const { from, to, limit = 10 } = params;
+  const isEnabled = (options?.enabled !== undefined ? options.enabled : true) && isAuthenticated && !!userId;
+
   return useInfiniteQuery({
-    queryKey: ['attendance', 'team', from, to],
+    queryKey: ['attendance', 'team', userId, from, to],
     queryFn: ({ pageParam = 1 }) =>
       attendanceApi.getTeamAttendance({
         page: pageParam,
@@ -219,7 +367,9 @@ export const useTeamAttendanceInfiniteQuery = (params: { from: string; to: strin
     getNextPageParam: (lastPage, allPages) => {
       return lastPage.hasMore ? allPages.length + 1 : undefined;
     },
-    enabled: isAuthenticated && !!from && !!to,
+    enabled: isEnabled && !!from && !!to,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
   });
 };
 
@@ -246,8 +396,7 @@ export const useCheckInMutation = () =>
   useAppMutation<AttendanceStatus, Error, { latitude?: number; longitude?: number; note?: string }>({
     mutationFn: (payload) => attendanceApi.checkIn(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.attendance.today });
-      queryClient.invalidateQueries({ queryKey: ['attendance', 'logs'] });
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
     },
   });
 
@@ -255,24 +404,33 @@ export const useCheckOutMutation = () =>
   useAppMutation<AttendanceStatus, Error, { note?: string }>({
     mutationFn: (payload) => attendanceApi.checkOut(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.attendance.today });
-      queryClient.invalidateQueries({ queryKey: ['attendance', 'logs'] });
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
     },
   });
 
-export const useAttendanceSummaryQuery = (from: string, to: string) =>
-  useAppQuery<AttendanceSummary>({
-    queryKey: queryKeys.attendance.summary(from, to),
+export const useAttendanceSummaryQuery = (from: string, to: string) => {
+  const user = useAppSelector((state) => state.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  return useAppQuery<AttendanceSummary>({
+    queryKey: ['attendance', 'summary', userId, from, to],
     queryFn: () => attendanceApi.getAttendanceSummary(from, to),
-    enabled: !!from && !!to,
+    enabled: !!userId && !!from && !!to,
   });
+};
 
-export const useWFHRequestsQuery = (options?: { enabled?: boolean }) =>
-  useAppQuery<WFHRequest[]>({
-    queryKey: queryKeys.attendance.wfh,
+export const useWFHRequestsQuery = (options?: { enabled?: boolean }) => {
+  const user = useAppSelector((s) => s.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
+  const isEnabled = (options?.enabled !== undefined ? options.enabled : true) && isAuthenticated && !!userId;
+
+  return useAppQuery<WFHRequest[]>({
+    queryKey: ['attendance', 'wfh', userId],
     queryFn: () => attendanceApi.getWFHRequests(),
-    enabled: options?.enabled,
+    enabled: isEnabled,
+    staleTime: 5 * 60 * 1000,
   });
+};
 
 export const useCreateWFHMutation = () =>
   useAppMutation({
@@ -280,22 +438,29 @@ export const useCreateWFHMutation = () =>
       return attendanceApi.createWFHRequest(payload);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.attendance.wfh });
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
     },
   });
 
-export const useWFHApprovalsQuery = (options?: { enabled?: boolean }) =>
-  useAppQuery<WFHApprovalRecord[]>({
-    queryKey: ['attendance', 'wfh-approvals'],
+export const useWFHApprovalsQuery = (options?: { enabled?: boolean }) => {
+  const user = useAppSelector((s) => s.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
+  const isEnabled = (options?.enabled !== undefined ? options.enabled : true) && isAuthenticated && !!userId;
+
+  return useAppQuery<WFHApprovalRecord[]>({
+    queryKey: ['attendance', 'wfh-approvals', userId],
     queryFn: () => attendanceApi.getWFHApprovals(),
-    enabled: options?.enabled,
+    enabled: isEnabled,
+    staleTime: 5 * 60 * 1000,
   });
+};
 
 export const useApproveWFHMutation = () =>
   useAppMutation({
     mutationFn: (requestId: string) => attendanceApi.approveWFHRequest(requestId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['attendance', 'wfh-approvals'] });
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
     },
   });
 
@@ -304,7 +469,7 @@ export const useRejectWFHMutation = () =>
     mutationFn: ({ requestId, rejectionReason }: { requestId: string; rejectionReason: string }) => 
       attendanceApi.rejectWFHRequest(requestId, { rejectionReason }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['attendance', 'wfh-approvals'] });
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
     },
   });
 
@@ -312,16 +477,22 @@ export const useDeleteWFHMutation = () =>
   useAppMutation({
     mutationFn: (requestId: string) => attendanceApi.deleteWFHRequest(requestId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.attendance.wfh });
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
     },
   });
 
-export const useOvertimeRequestsQuery = (options?: { enabled?: boolean }) =>
-  useAppQuery<OvertimeRequest[]>({
-    queryKey: queryKeys.attendance.overtime,
+export const useOvertimeRequestsQuery = (options?: { enabled?: boolean }) => {
+  const user = useAppSelector((s) => s.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
+  const isEnabled = (options?.enabled !== undefined ? options.enabled : true) && isAuthenticated && !!userId;
+
+  return useAppQuery<OvertimeRequest[]>({
+    queryKey: ['attendance', 'overtime', userId],
     queryFn: () => attendanceApi.getOvertimeRequests(),
-    enabled: options?.enabled,
+    enabled: isEnabled,
   });
+};
 
 export const useCreateOvertimeMutation = () =>
   useAppMutation({
@@ -329,16 +500,19 @@ export const useCreateOvertimeMutation = () =>
       return attendanceApi.createOvertimeRequest(payload);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.attendance.overtime });
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
     },
   });
 
-export const useTeamAttendanceQuery = (from: string, to: string) =>
-  useAppQuery<TeamAttendanceRecord[]>({
-    queryKey: queryKeys.attendance.team(from, to),
+export const useTeamAttendanceQuery = (from: string, to: string) => {
+  const user = useAppSelector((state) => state.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  return useAppQuery<TeamAttendanceRecord[]>({
+    queryKey: ['attendance', 'team-summary', userId, from, to],
     queryFn: () => attendanceApi.getTeamAttendance(from, to),
-    enabled: !!from && !!to,
+    enabled: !!userId && !!from && !!to,
   });
+};
 
 /* ============================================================================
    Employee hooks (TanStack Query) — Admin & HR only

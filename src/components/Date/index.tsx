@@ -149,17 +149,20 @@ const DatePicker: React.FC<IDatePickerProps> = ({
       });
     }
 
-    if (!selectedDate || !moment(selectedDate, 'DD/MM/YYYY').isValid()) {
+    if (!selectedDate) {
       return dates;
     }
 
-    const key = moment(selectedDate, 'DD/MM/YYYY').format('YYYY-MM-DD');
-    dates[key] = {
-      ...dates[key],
-      selected: true,
-      selectedColor: Colors.bottomTabBackground,
-      selectedTextColor: Colors.white,
-    };
+    const parsed = moment(selectedDate, ['DD/MM/YYYY', 'YYYY-MM-DD']);
+    if (parsed.isValid()) {
+      const key = parsed.format('YYYY-MM-DD');
+      dates[key] = {
+        ...dates[key],
+        selected: true,
+        selectedColor: Colors.primary || '#3B82F6',
+        selectedTextColor: Colors.white,
+      };
+    }
 
     return dates;
   }, [selectedDate, disabledDates, disabledDaysOfWeek, currentMonth]);
@@ -169,7 +172,7 @@ const DatePicker: React.FC<IDatePickerProps> = ({
       backgroundColor: 'transparent',
       calendarBackground: 'transparent',
       textSectionTitleColor: Colors.sectionHeader || '#8A8A8A',
-      selectedDayBackgroundColor: Colors.bottomTabBackground,
+      selectedDayBackgroundColor: Colors.primary || '#3B82F6',
       selectedDayTextColor: Colors.white,
       todayTextColor: Colors.primary,
       dayTextColor: Colors.text.primary,
@@ -477,7 +480,7 @@ const DatePicker: React.FC<IDatePickerProps> = ({
                 ]}
               >
                 <Typography variant="body2" weight="700" style={styles.applyButtonText}>
-                  Apply
+                  OK
                 </Typography>
               </TouchableOpacity>
             </View>
@@ -700,7 +703,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   applyButton: {
-    backgroundColor: Colors.bottomTabBackground,
+    backgroundColor: Colors.primary || '#3B82F6',
     paddingHorizontal: normalize(20),
     minWidth: normalize(80),
     alignItems: 'center',

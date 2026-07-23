@@ -1,52 +1,148 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   ScrollView,
   TouchableOpacity,
-  StyleSheet,
   ActivityIndicator,
-  Modal,
-  TextInput,
   Alert,
+  StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppSelector } from '../../hooks/useRedux';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import Animated, { FadeInDown, FadeInUp, Layout, useAnimatedStyle, withTiming, useSharedValue } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Calendar } from 'react-native-calendars';
 import {
   useLeaveSummaryQuery,
-  useLeaveRequestsQuery,
+  useLeaveRequestsInfiniteQuery,
+  useAdminLeaveRequestsInfiniteQuery,
+  useAdminLeaveBalancesInfiniteQuery,
+  useLeaveTypesDropdownQuery,
+  useDepartmentDropdownQuery,
+  useEmployeeDropdownQuery,
+  useMyLeaveDatesQuery,
   useApplyLeaveMutation,
-  useApproveRejectLeaveMutation,
+  useCancelLeaveMutation,
+  useResolveLeaveMutation,
 } from '../../hooks/useQueries';
+import { InfiniteList } from '../../components/InfiniteList';
+import DeleteConfirmationModal from '../../components/Modals/DeleteConfirmationModal';
 import colors from '../../theme/color';
 import { Typography } from '../../components/Typography';
+import { DropdownOption } from '../../components/UICore/UICoreDropdown';
+import { UICoreSearch } from '../../components/UICore/UICoreSearch';
 import {
   Plus,
   CheckCircle2,
   XCircle,
   Clock,
   CalendarRange,
-  ChevronDown,
   TrendingUp,
   FileText,
-  UploadCloud,
-  Search,
-  Filter,
   LayoutDashboard,
   CalendarDays,
-  Wallet,
+  RotateCw,
+  SlidersHorizontal,
+  X,
 } from 'lucide-react-native';
 import moment from 'moment';
-import { normalize, screenWidth } from '../../utils/responsive';
+import { normalize } from '../../utils/responsive';
 import CustomHeader from '../../components/Header';
-import CustomButton from '../../components/Button';
-import CustomInput from '../../components/Input';
-import SelectDropdown from '../../components/Dropdown';
-import { DetailedLeaveBalance } from '../../api/leaveApi';
+import { DetailedLeaveBalance, LeaveRequest, AdminLeaveBalance, LeaveFilterParams } from '../../api/leaveApi';
+import { getStatusColor, getRequestCode } from './LeaveTypes';
+import { s } from './LeaveStyles';
+import {
+  ActivityAccordionCard,
+  BalanceCard,
+  LeaveRequestCard,
+  LeaveApprovalCard,
+  LeaveApprovalItem,
+  LeaveDetailsModal,
+  ApplyLeaveModal,
+  LeaveFilterModal,
+  LeaveRejectionModal,
+  LeaveBalanceAdminCard,
+  LeaveBalanceDetailsModal,
+} from './LeaveComponents';
+import { LeaveCalendarTab } from './LeaveCalendarTab';
+
+const INITIAL_APPROVAL_REQUESTS: LeaveApprovalItem[] = [
+  {
+    id: 'lvr-c9df',
+    requestCode: 'LVR-C9DF',
+    employeeName: 'Ashish Rabari',
+    employeeId: 'QB048',
+    leaveType: 'Casual Leave',
+    startDate: '27 Jul 2026',
+    endDate: '27 Jul 2026',
+    days: '0.50',
+    status: 'Pending TL',
+    reason: 'Family event and personal work',
+    appliedAt: '21 Jul 2026',
+  },
+  {
+    id: 'lvr-505d',
+    requestCode: 'LVR-505D',
+    employeeName: 'Ashish Rabari',
+    employeeId: 'QB048',
+    leaveType: 'Casual Leave',
+    startDate: '24 Jul 2026',
+    endDate: '24 Jul 2026',
+    days: '0.50',
+    status: 'Pending HR',
+    reason: 'Doctor appointment',
+    appliedAt: '21 Jul 2026',
+  },
+  {
+    id: 'lvr-fc48',
+    requestCode: 'LVR-FC48',
+    employeeName: 'Priya Sharma',
+    employeeId: 'QB012',
+    leaveType: 'Sick Leave',
+    startDate: '23 Jul 2026',
+    endDate: '25 Jul 2026',
+    days: '3.00',
+    status: 'Approved',
+    reason: 'Fever and medical rest',
+    appliedAt: '20 Jul 2026',
+  },
+  {
+    id: 'lvr-2cdf',
+    requestCode: 'LVR-2CDF',
+    employeeName: 'Rahul Verma',
+    employeeId: 'QB033',
+    leaveType: 'Early Leave',
+    startDate: '28 Jul 2026',
+    endDate: '28 Jul 2026',
+    days: '0.50',
+    status: 'Rejected',
+    reason: 'Personal errand',
+    appliedAt: '19 Jul 2026',
+  },
+];
+
+const QUICK_DATE_OPTIONS: DropdownOption[] = [
+  { label: 'Today', value: 'today' },
+  { label: 'Tomorrow', value: 'tomorrow' },
+  { label: 'This Week', value: 'this_week' },
+  { label: 'This Month', value: 'this_month' },
+  { label: 'Last 3 Months', value: 'last_3_months' },
+  { label: 'Last 6 Months', value: 'last_6_months' },
+  { label: 'This Year', value: 'this_year' },
+  { label: 'Previous Year', value: 'previous_year' },
+  { label: 'Next Year', value: 'next_year' },
+];
+
+const STATUS_OPTIONS: DropdownOption[] = [
+  { label: 'Pending TL', value: 'pending_tl' },
+  { label: 'Pending HR', value: 'pending_hr' },
+  { label: 'Pending Admin', value: 'pending_admin' },
+  { label: 'Approved', value: 'approved' },
+  { label: 'Rejected', value: 'rejected' },
+  { label: 'Cancelled', value: 'cancelled' },
+];
 
 export const LeaveScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
@@ -54,8 +150,46 @@ export const LeaveScreen: React.FC = () => {
   const userRole = (user as any)?.role || 'developer';
 
   // Navigation State
-  const [activeTab, setActiveTab] = useState<'individual' | 'management'>('individual');
+  const [activeTab, setActiveTab] = useState<'individual' | 'my_leaves' | 'balances' | 'approvals' | 'calendar'>('individual');
   const [dashboardView, setDashboardView] = useState<'overview' | 'calendar'>('overview');
+
+  /* ── Permissions ─────────────────────────────────────────── */
+  const slicePerms = useAppSelector((state) => (state as any).permission?.permissions);
+  const authUserPerms = useAppSelector((state) => (state as any).auth?.user?.permissions);
+
+  const permissions = useMemo(
+    () => ((slicePerms && slicePerms.length > 0) ? slicePerms : (authUserPerms || [])),
+    [slicePerms, authUserPerms]
+  );
+
+  const hasPermission = (resource: string, action: string) => {
+    if (!permissions || permissions.length === 0) return true;
+    return permissions.some((p: any) => p.resource === resource && p.action === action);
+  };
+
+  const canApproveLeaves = hasPermission('leaves', 'approve');
+  const canViewLeaveBalances = hasPermission('leave_balances', 'view');
+
+  const availableTabs = useMemo(() => {
+    const tabs: { key: 'individual' | 'my_leaves' | 'balances' | 'approvals' | 'calendar'; label: string }[] = [];
+    tabs.push({ key: 'individual', label: 'Individual Dashboard' });
+    tabs.push({ key: 'my_leaves', label: 'My Leaves' });
+    if (canViewLeaveBalances) {
+      tabs.push({ key: 'balances', label: 'Leave Balances' });
+    }
+    if (canApproveLeaves) {
+      tabs.push({ key: 'approvals', label: 'Leave Approvals' });
+    }
+    tabs.push({ key: 'calendar', label: 'Calendar' });
+    return tabs;
+  }, [canApproveLeaves, canViewLeaveBalances]);
+
+  useEffect(() => {
+    const validKeys = availableTabs.map((t) => t.key);
+    if (!validKeys.includes(activeTab)) {
+      setActiveTab(validKeys[0] || 'individual');
+    }
+  }, [availableTabs, activeTab]);
 
   // Modal State
   const [isApplyModalVisible, setIsApplyModalVisible] = useState(false);
@@ -69,94 +203,433 @@ export const LeaveScreen: React.FC = () => {
   const [endDate, setEndDate] = useState('');
   const [reason, setReason] = useState('');
 
-  // Accordion State
-  const [activityExpanded, setActivityExpanded] = useState(false);
-  const activityExpandedShared = useSharedValue(0);
+  // Management Tab Search & Filter State
+  const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(null);
+  const [isDetailsModalVisible, setIsDetailsModalVisible] = useState(false);
+  const [selectedBalanceForModal, setSelectedBalanceForModal] = useState<AdminLeaveBalance | null>(null);
+  const [isBalanceDetailsModalVisible, setIsBalanceDetailsModalVisible] = useState(false);
+  const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
+  const [requestToDelete, setRequestToDelete] = useState<string | null>(null);
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
 
-  const toggleActivity = async () => {
-    await Haptics.selectionAsync();
-    setActivityExpanded(!activityExpanded);
-    activityExpandedShared.value = activityExpanded ? 0 : 1;
+  // Tab-isolated filter states
+  const [myFilters, setMyFilters] = useState({
+    searchQuery: '',
+    quickDate: '',
+    statusFilter: '',
+    leaveTypeIdFilter: '',
+    fromDate: '',
+    toDate: '',
+  });
+
+  const [approvalFilters, setApprovalFilters] = useState({
+    searchQuery: '',
+    quickDate: '',
+    statusFilter: '',
+    leaveTypeIdFilter: '',
+    fromDate: '',
+    toDate: '',
+    departmentFilter: '',
+    employeeFilter: '',
+  });
+
+  const [balanceFilters, setBalanceFilters] = useState({
+    searchQuery: '',
+    yearFilter: '',
+    leaveTypeIdFilter: '',
+    departmentFilter: '',
+    employeeFilter: '',
+  });
+
+  const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [rejectingRequestId, setRejectingRequestId] = useState<string | null>(null);
+
+  const resolveLeaveMutation = useResolveLeaveMutation();
+
+  const handleApproveRequest = (id: string) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    resolveLeaveMutation.mutate(
+      { requestId: id, status: 'approved' },
+      {
+        onSuccess: () => {
+          Alert.alert('Approved', 'Leave request has been approved successfully!');
+        },
+        onError: (err: any) => {
+          Alert.alert('Error', err?.response?.data?.message || err?.message || 'Failed to approve request.');
+        },
+      }
+    );
   };
 
-  const marginTopVal = normalize(16);
-  const paddingTopVal = normalize(12);
+  const handleOpenRejectModal = (id: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setRejectingRequestId(id);
+    setRejectModalVisible(true);
+  };
 
-  const activityStyle = useAnimatedStyle(() => ({
-    maxHeight: withTiming(activityExpandedShared.value ? 200 : 0, { duration: 300 }),
-    opacity: withTiming(activityExpandedShared.value ? 1 : 0, { duration: 250 }),
-    marginTop: withTiming(activityExpandedShared.value ? marginTopVal : 0, { duration: 300 }),
-    paddingTop: withTiming(activityExpandedShared.value ? paddingTopVal : 0, { duration: 300 }),
-  }));
+  const handleConfirmReject = (reason: string) => {
+    if (!rejectingRequestId) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    resolveLeaveMutation.mutate(
+      { requestId: rejectingRequestId, status: 'rejected', rejectionReason: reason },
+      {
+        onSuccess: () => {
+          setRejectModalVisible(false);
+          setRejectingRequestId(null);
+          Alert.alert('Rejected', 'Leave request has been rejected.');
+        },
+        onError: (err: any) => {
+          Alert.alert('Error', err?.response?.data?.message || err?.message || 'Failed to reject request.');
+        },
+      }
+    );
+  };
 
-  // TanStack Query Hooks
+  // TanStack Queries
   const { data: summaryResponse, isLoading: isSummaryLoading } = useLeaveSummaryQuery();
-  const { data: requests = [], isLoading: isReqLoading } = useLeaveRequestsQuery('my'); // Only fetching 'my' leaves for the Management tab based on screenshot
-  
+  const { data: leaveTypes } = useLeaveTypesDropdownQuery();
+  const { data: departmentOptions = [] } = useDepartmentDropdownQuery();
+  const { data: employeeOptions = [] } = useEmployeeDropdownQuery();
+  const { data: appliedLeaveDates = [] } = useMyLeaveDatesQuery({ enabled: isApplyModalVisible });
+
+  const typeOptions: DropdownOption[] = useMemo(() => {
+    if (leaveTypes && Array.isArray(leaveTypes)) {
+      return leaveTypes.map((t) => ({
+        label: t.label,
+        value: t.value,
+      }));
+    }
+    return [];
+  }, [leaveTypes]);
+
+  const applyLeaveTypeOptions: DropdownOption[] = useMemo(() => {
+    if (leaveTypes && Array.isArray(leaveTypes)) {
+      return leaveTypes.map((t) => {
+        const match = summaryResponse?.balances?.find(
+          (b) => b.code?.toUpperCase() === t.leave_code?.toUpperCase(),
+        );
+        const availStr = t.isUnlimited
+          ? 'Unlimited'
+          : match
+          ? `${match.available.toFixed(2)} days`
+          : '0.00 days';
+        return {
+          label: `${t.label} (${t.leave_code}) — ${availStr}`,
+          value: t.value,
+        };
+      });
+    }
+    return [
+      { label: 'Casual Leave (CL) — 2.50 days', value: '2921e95f-146a-488f-bc6d-2f39750952f4' },
+      { label: 'Sick Leave (SL) — 2.00 days', value: 'd122e4f8-d943-4223-8db8-a16b0900f026' },
+      { label: 'Early Leave (EL) — 3.00 days', value: '18e8bc6c-030b-4494-8d75-476d967f39f2' },
+      { label: 'Leave Without Pay (LWP) — Unlimited', value: '9f71ae4f-7239-41aa-ad8e-836623c8e35a' },
+    ];
+  }, [leaveTypes, summaryResponse]);
+
+  const myFilterParams = useMemo<LeaveFilterParams>(
+    () => ({
+      search: myFilters.searchQuery.trim() || undefined,
+      status: myFilters.statusFilter || undefined,
+      leaveTypeId: myFilters.leaveTypeIdFilter || undefined,
+      fromDate: myFilters.fromDate || undefined,
+      toDate: myFilters.toDate || undefined,
+    }),
+    [myFilters]
+  );
+
+  const approvalFilterParams = useMemo<LeaveFilterParams>(
+    () => ({
+      search: approvalFilters.searchQuery.trim() || undefined,
+      status: approvalFilters.statusFilter || undefined,
+      leaveTypeId: approvalFilters.leaveTypeIdFilter || undefined,
+      fromDate: approvalFilters.fromDate || undefined,
+      toDate: approvalFilters.toDate || undefined,
+      departmentFilter: approvalFilters.departmentFilter || undefined,
+      employeeFilter: approvalFilters.employeeFilter || undefined,
+    }),
+    [approvalFilters]
+  );
+
+  const balanceFilterParams = useMemo<LeaveFilterParams>(
+    () => ({
+      search: balanceFilters.searchQuery.trim() || undefined,
+      yearFilter: balanceFilters.yearFilter || undefined,
+      leaveTypeId: balanceFilters.leaveTypeIdFilter || undefined,
+      departmentFilter: balanceFilters.departmentFilter || undefined,
+      employeeFilter: balanceFilters.employeeFilter || undefined,
+    }),
+    [balanceFilters]
+  );
+
+  const {
+    data: requestsData,
+    isLoading: isReqLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refetch,
+    isRefetching,
+  } = useLeaveRequestsInfiniteQuery('my', 10, myFilterParams);
+
+  const requests = useMemo(() => {
+    return requestsData?.pages.flatMap((page) => page.data) || [];
+  }, [requestsData]);
+
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(() => moment().format('YYYY-MM-DD'));
+
+  const calendarMarkedDates = useMemo(() => {
+    const marked: Record<string, any> = {};
+
+    requests.forEach((req: any) => {
+      const start = req.startDate || req.start_date;
+      const end = req.endDate || req.end_date;
+      if (!start) return;
+
+      const startM = moment(start);
+      const endM = moment(end || start);
+      const status = (req.status || 'pending').toLowerCase();
+
+      let color = colors.warning;
+      if (status === 'approved') color = colors.success;
+      else if (status === 'pending_hr') color = colors.emailBlue;
+      else if (status === 'pending_tl') color = colors.warning;
+      else if (status === 'pending_admin') color = colors.primary;
+      else if (status === 'rejected') color = colors.error;
+      else if (status === 'cancelled') color = colors.text.muted;
+
+      const currM = startM.clone();
+      while (currM.isSameOrBefore(endM, 'day')) {
+        const dateKey = currM.format('YYYY-MM-DD');
+        const isSelected = dateKey === selectedCalendarDate;
+
+        marked[dateKey] = {
+          customStyles: {
+            container: {
+              backgroundColor: color + '22',
+              borderRadius: normalize(8),
+              borderWidth: isSelected ? 2 : 0,
+              borderColor: isSelected ? colors.primary : 'transparent',
+            },
+            text: {
+              color: color,
+              fontWeight: '800',
+            },
+          },
+        };
+        currM.add(1, 'day');
+      }
+    });
+
+    if (!marked[selectedCalendarDate]) {
+      marked[selectedCalendarDate] = {
+        customStyles: {
+          container: {
+            borderWidth: 2,
+            borderColor: colors.primary,
+            borderRadius: normalize(8),
+            backgroundColor: colors.primary + '10',
+          },
+          text: {
+            color: colors.primary,
+            fontWeight: '800',
+          },
+        },
+      };
+    }
+
+    return marked;
+  }, [requests, selectedCalendarDate]);
+
+  const selectedDateRequests = useMemo(() => {
+    if (!selectedCalendarDate) return [];
+    const selectedM = moment(selectedCalendarDate);
+
+    return requests.filter((req: any) => {
+      const start = req.startDate || req.start_date;
+      const end = req.endDate || req.end_date;
+      if (!start) return false;
+
+      const startM = moment(start);
+      const endM = moment(end || start);
+      return selectedM.isBetween(startM, endM, 'day', '[]');
+    });
+  }, [requests, selectedCalendarDate]);
+
+  const {
+    data: adminRequestsData,
+    isLoading: isAdminLoading,
+    fetchNextPage: adminFetchNextPage,
+    hasNextPage: adminHasNextPage,
+    isFetchingNextPage: isAdminFetchingNextPage,
+    refetch: adminRefetch,
+    isRefetching: isAdminRefetching,
+  } = useAdminLeaveRequestsInfiniteQuery(10, approvalFilterParams, {
+    enabled: hasPermission('leaves', 'approve'),
+  });
+
+  const adminRequests = useMemo(() => {
+    return adminRequestsData?.pages.flatMap((page) => page.data) || [];
+  }, [adminRequestsData]);
+
+  const adminSummary = useMemo(() => {
+    const firstPage = adminRequestsData?.pages[0];
+    return (
+      firstPage?.summary || {
+        total: adminRequests.length,
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        cancelled: 0,
+      }
+    );
+  }, [adminRequestsData, adminRequests]);
+
+  const {
+    data: adminBalancesData,
+    isLoading: isAdminBalancesLoading,
+    fetchNextPage: balancesFetchNextPage,
+    hasNextPage: balancesHasNextPage,
+    isFetchingNextPage: balancesIsFetchingNextPage,
+    refetch: balancesRefetch,
+    isRefetching: balancesIsRefetching,
+  } = useAdminLeaveBalancesInfiniteQuery(10, balanceFilterParams, {
+    enabled: activeTab === 'balances' && canViewLeaveBalances,
+  });
+
+  const adminBalances = useMemo(() => {
+    return adminBalancesData?.pages.flatMap((page) => page.data || []) || [];
+  }, [adminBalancesData]);
+
+  const balancesSummary = useMemo(() => {
+    const totalRecords = adminBalances.length;
+    const totalEntitled = adminBalances.reduce((acc, b) => acc + (b.totalEntitled || parseFloat(String(b.yearlyQuota || 0)) || 0), 0);
+    const totalAccrued = adminBalances.reduce((acc, b) => acc + (b.accrued || parseFloat(b.earned || '0') || 0), 0);
+    const totalAvailable = adminBalances.reduce((acc, b) => acc + (b.availableBalance || 0), 0);
+    return { totalRecords, totalEntitled, totalAccrued, totalAvailable };
+  }, [adminBalances]);
+
+  const mgtMetrics = useMemo(() => {
+    const total = requests.length;
+    const approved = requests.filter((r) => (r.status || '').toLowerCase() === 'approved').length;
+    const rejected = requests.filter((r) => (r.status || '').toLowerCase() === 'rejected').length;
+    const pending = requests.filter((r) => (r.status || '').toLowerCase().includes('pending')).length;
+    return { total, approved, rejected, pending };
+  }, [requests]);
+
   const { mutateAsync: applyLeave, isPending: isSubmitting } = useApplyLeaveMutation();
+  const { mutateAsync: cancelLeave, isPending: isCancellingLeave } = useCancelLeaveMutation();
 
   const handleApplyLeave = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (!startDate || !endDate || !reason) {
-      Alert.alert('Error', 'Please fill all required fields');
+    const chosenLeaveTypeId = leaveType || applyLeaveTypeOptions[0]?.value;
+
+    if (!chosenLeaveTypeId || !startDate || !endDate || !reason.trim()) {
+      Alert.alert('Required Fields Missing', 'Please fill all required fields before submitting.');
       return;
     }
+
+    const isHalf = startDate === endDate && (
+      dayType === 'first_half' ||
+      dayType === 'second_half' ||
+      dayType.toLowerCase().includes('half')
+    );
+    const calculatedDays = isHalf
+      ? 0.5
+      : Math.max(1, moment(endDate).diff(moment(startDate), 'days') + 1);
+    
+    let backendDayType = dayType;
+    if (dayType === 'First Half' || dayType.toLowerCase().includes('first')) backendDayType = 'first_half';
+    else if (dayType === 'Second Half' || dayType.toLowerCase().includes('second')) backendDayType = 'second_half';
+    else if (dayType === 'Full Day' || dayType.toLowerCase().includes('full')) backendDayType = 'full_day';
+
     try {
-      const totalDays = moment(endDate).diff(moment(startDate), 'days') + 1;
       await applyLeave({
-        leave_type: leaveType as any,
-        start_date: startDate,
-        end_date: endDate,
-        reason,
-        total_days: totalDays,
-        status: 'Pending',
-        employee_name: `${user?.first_name} ${user?.last_name}`,
-        employee_role: userRole,
+        leaveTypeId: chosenLeaveTypeId,
+        startDate,
+        endDate,
+        days: String(calculatedDays),
+        dayType: backendDayType,
+        reason: reason.trim(),
       });
       setIsApplyModalVisible(false);
       setStartDate('');
       setEndDate('');
       setReason('');
+      setDayType('full_day');
+      Alert.alert('Success', 'Leave request submitted successfully!');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e) {
-      console.error(e);
+      refetch();
+    } catch (e: any) {
+      console.error('Apply Leave failed:', e);
+      Alert.alert('Error', e?.response?.data?.message || e?.message || 'Failed to submit leave request.');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Approved': return colors.success;
-      case 'Cancelled': return colors.text.muted;
-      case 'Rejected': return colors.error;
-      default: return colors.warning;
+  const handlePressDelete = (requestId: string) => {
+    setRequestToDelete(requestId);
+    setIsDeleteModalVisible(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!requestToDelete) return;
+    try {
+      await cancelLeave(requestToDelete);
+      setIsDeleteModalVisible(false);
+      setRequestToDelete(null);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      refetch();
+    } catch (e: any) {
+      console.error('Cancel Leave failed:', e);
+      Alert.alert('Error', e?.response?.data?.message || e?.message || 'Failed to cancel leave request.');
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   };
 
-  // --- UI COMPONENTS ---
+  // UI Render Helpers
 
   const renderTopTabs = () => (
     <View style={s.topTabsWrapper}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.topTabsScroll}>
-        <TouchableOpacity style={[s.topTab, activeTab === 'individual' && s.topTabActive]} onPress={() => { Haptics.selectionAsync(); setActiveTab('individual'); }}>
-          <Typography style={[s.topTabText, activeTab === 'individual' && s.topTabTextActive]}>Individual Dashboard</Typography>
-        </TouchableOpacity>
-        <TouchableOpacity style={[s.topTab, activeTab === 'management' && s.topTabActive]} onPress={() => { Haptics.selectionAsync(); setActiveTab('management'); }}>
-          <Typography style={[s.topTabText, activeTab === 'management' && s.topTabTextActive]}>My Leaves</Typography>
-        </TouchableOpacity>
+        {availableTabs.map((tab) => (
+          <TouchableOpacity
+            key={tab.key}
+            style={[s.topTab, activeTab === tab.key && s.topTabActive]}
+            onPress={() => {
+              Haptics.selectionAsync();
+              setActiveTab(tab.key);
+            }}
+          >
+            <Typography style={[s.topTabText, activeTab === tab.key && s.topTabTextActive]}>
+              {tab.label}
+            </Typography>
+          </TouchableOpacity>
+        ))}
       </ScrollView>
       <View style={s.topTabsDivider} />
     </View>
   );
 
   const renderSubTabs = () => (
-    <View style={s.subTabsWrapper}>
-      <Typography variant="h2" style={s.pageTitle}>Leave Overview</Typography>
+    <View style={[s.subTabsWrapper, { justifyContent: 'flex-end', paddingTop: normalize(12), paddingBottom: normalize(4) }]}>
       <View style={[s.subTabsGroup, { padding: 4 }]}>
-        <TouchableOpacity style={[s.subTab, dashboardView === 'overview' && s.subTabActive, { paddingVertical: 8, paddingHorizontal: 24 }]} onPress={() => { Haptics.selectionAsync(); setDashboardView('overview'); }}>
+        <TouchableOpacity
+          style={[s.subTab, dashboardView === 'overview' && s.subTabActive, { paddingVertical: 8, paddingHorizontal: 24 }]}
+          onPress={() => {
+            Haptics.selectionAsync();
+            setDashboardView('overview');
+          }}
+        >
           <LayoutDashboard size={18} color={dashboardView === 'overview' ? colors.primary : colors.text.muted} />
         </TouchableOpacity>
-        <TouchableOpacity style={[s.subTab, dashboardView === 'calendar' && s.subTabActive, { paddingVertical: 8, paddingHorizontal: 24 }]} onPress={() => { Haptics.selectionAsync(); setDashboardView('calendar'); }}>
+        <TouchableOpacity
+          style={[s.subTab, dashboardView === 'calendar' && s.subTabActive, { paddingVertical: 8, paddingHorizontal: 24 }]}
+          onPress={() => {
+            Haptics.selectionAsync();
+            setDashboardView('calendar');
+          }}
+        >
           <CalendarDays size={18} color={dashboardView === 'calendar' ? colors.primary : colors.text.muted} />
         </TouchableOpacity>
       </View>
@@ -164,203 +637,268 @@ export const LeaveScreen: React.FC = () => {
   );
 
   const renderOverviewHeroCards = () => {
-    if (isSummaryLoading || !summaryResponse) return <ActivityIndicator color={colors.primary} style={{ marginVertical: 20 }} />;
+    if (isSummaryLoading || !summaryResponse)
+      return <ActivityIndicator color={colors.primary} style={{ marginVertical: 20 }} />;
     const { metrics } = summaryResponse;
+
+    const approvedCountThisMonth = requests.filter(
+      (req) => req.status?.toLowerCase() === 'approved' && moment(req.start_date || req.startDate).isSame(moment(), 'month'),
+    ).length;
+
     return (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.statScroll}>
         <BlurView intensity={50} tint="light" style={s.statCard}>
-          <View style={[s.statIconWrap, { backgroundColor: colors.text.muted + '18' }]}><CalendarRange size={normalize(18)} color={colors.text.muted} /></View>
+          <View style={[s.statIconWrap, { backgroundColor: colors.text.muted + '18' }]}>
+            <CalendarRange size={normalize(18)} color={colors.text.muted} />
+          </View>
           <Typography style={[s.statValue, { color: colors.text.primary }]}>{metrics.totalAvailable.toFixed(1)}</Typography>
-          <Typography style={s.statLabel} numberOfLines={2}>Available</Typography>
+          <Typography style={s.statLabel} numberOfLines={2}>
+            Available
+          </Typography>
         </BlurView>
         <BlurView intensity={50} tint="light" style={s.statCard}>
-          <View style={[s.statIconWrap, { backgroundColor: colors.success + '18' }]}><TrendingUp size={normalize(18)} color={colors.success} /></View>
+          <View style={[s.statIconWrap, { backgroundColor: colors.success + '18' }]}>
+            <TrendingUp size={normalize(18)} color={colors.success} />
+          </View>
           <Typography style={[s.statValue, { color: colors.success }]}>{metrics.usedThisYear.toFixed(1)}</Typography>
-          <Typography style={s.statLabel} numberOfLines={2}>Used (YTD)</Typography>
+          <Typography style={s.statLabel} numberOfLines={2}>
+            Used (YTD)
+          </Typography>
         </BlurView>
         <BlurView intensity={50} tint="light" style={s.statCard}>
-          <View style={[s.statIconWrap, { backgroundColor: colors.warning + '18' }]}><Clock size={normalize(18)} color={colors.warning} /></View>
+          <View style={[s.statIconWrap, { backgroundColor: colors.warning + '18' }]}>
+            <Clock size={normalize(18)} color={colors.warning} />
+          </View>
           <Typography style={[s.statValue, { color: colors.warning }]}>{metrics.totalPending.toFixed(1)}</Typography>
-          <Typography style={s.statLabel} numberOfLines={2}>Pending</Typography>
+          <Typography style={s.statLabel} numberOfLines={2}>
+            Pending
+          </Typography>
         </BlurView>
         <BlurView intensity={50} tint="light" style={s.statCard}>
-          <View style={[s.statIconWrap, { backgroundColor: colors.primary + '18' }]}><CheckCircle2 size={normalize(18)} color={colors.primary} /></View>
-          <Typography style={[s.statValue, { color: colors.primary }]}>{metrics.approvedThisMonth}</Typography>
-          <Typography style={s.statLabel} numberOfLines={2}>Approved</Typography>
+          <View style={[s.statIconWrap, { backgroundColor: colors.primary + '18' }]}>
+            <CheckCircle2 size={normalize(18)} color={colors.primary} />
+          </View>
+          <Typography style={[s.statValue, { color: colors.primary }]}>{approvedCountThisMonth}</Typography>
+          <Typography style={s.statLabel} numberOfLines={2}>
+            Approved
+          </Typography>
         </BlurView>
       </ScrollView>
     );
   };
 
-  const renderBalanceCard = (bal: DetailedLeaveBalance, index: number) => (
-    <Animated.View key={bal.code} entering={FadeInDown.delay(index * 100).springify()}>
-      <BlurView intensity={50} tint="light" style={[s.balanceCard, { padding: normalize(20), borderRadius: normalize(24), backgroundColor: 'rgba(255,255,255,0.5)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.8)', marginBottom: normalize(16), overflow: 'hidden' }]}>
-        <View style={s.bcHeader}>
-          <View>
-            <Typography style={s.bcTitle}>{bal.name}</Typography>
-            <View style={s.bcTags}>
-              <View style={s.bcTag}><Typography style={s.bcTagText}>{bal.code}</Typography></View>
-              <View style={[s.bcTag, { backgroundColor: bal.isPaid ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)' }]}>
-                <Typography style={[s.bcTagText, { color: bal.isPaid ? colors.success : colors.warning }]}>{bal.isPaid ? 'PAID' : 'UNPAID'}</Typography>
-              </View>
-            </View>
-          </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            {bal.code === 'LWP' ? (
-              <Typography variant="h1" style={[s.bcAvailable, { color: colors.primary }]}>∞</Typography>
-            ) : (
-              <Typography variant="h2" style={[s.bcAvailable, { color: colors.primary }]}>{bal.available.toFixed(2)}</Typography>
-            )}
-            <Typography style={s.bcAvailableSub}>AVAILABLE</Typography>
-          </View>
-        </View>
-        
-        <View style={s.bcMetricsRow}>
-          <View style={s.bcMetric}><Typography style={s.bcMetricTitle}>ACCRUED</Typography><Typography style={s.bcMetricVal}>{bal.accrued.toFixed(2)}</Typography></View>
-          <View style={s.bcMetric}><Typography style={s.bcMetricTitle}>ENTITLED</Typography><Typography style={s.bcMetricVal}>{bal.entitled.toFixed(2)}</Typography></View>
-          <View style={[s.bcMetric, s.bcMetricHighlight, { backgroundColor: 'rgba(245,158,11,0.05)' }]}><Typography style={[s.bcMetricTitle, { color: colors.warning }]}>PENDING</Typography><Typography style={[s.bcMetricVal, { color: colors.warning }]}>{bal.pending.toFixed(2)}</Typography></View>
-          <View style={[s.bcMetric, s.bcMetricHighlight, { backgroundColor: 'rgba(239,68,68,0.05)' }]}><Typography style={[s.bcMetricTitle, { color: colors.error }]}>USED</Typography><Typography style={[s.bcMetricVal, { color: colors.error }]}>{bal.used.toFixed(2)}</Typography></View>
-          <View style={s.bcMetric}><Typography style={s.bcMetricTitle}>ADJUSTED</Typography><Typography style={s.bcMetricVal}>{bal.adjusted.toFixed(2)}</Typography></View>
-        </View>
-      </BlurView>
-    </Animated.View>
-  );
-
   const renderIndividualDashboard = () => (
     <Animated.View style={{ flex: 1 }} entering={FadeInDown.duration(300)}>
       {renderSubTabs()}
-      
       {dashboardView === 'overview' ? (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-          {renderOverviewHeroCards()}
-          
-          <View style={s.sectionHeader}>
-            <Typography style={s.sectionTitle}>Leave Balances — {moment().format('YYYY')}</Typography>
-          </View>
-          
-          {isSummaryLoading ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : (
-            summaryResponse?.balances.map((b, i) => renderBalanceCard(b, i))
+        <InfiniteList
+          data={requests}
+          isLoading={isReqLoading}
+          isFetchingNextPage={isFetchingNextPage}
+          hasNextPage={!!hasNextPage}
+          onLoadMore={() => fetchNextPage()}
+          onRefresh={() => refetch()}
+          isRefreshing={isRefetching}
+          contentContainerStyle={s.content}
+          ListHeaderComponent={
+            <>
+              {renderOverviewHeroCards()}
+              <View style={s.sectionHeader}>
+                <Typography style={s.sectionTitle}>Leave Balances — {moment().format('YYYY')}</Typography>
+              </View>
+              {isSummaryLoading ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                summaryResponse?.balances.map((b: DetailedLeaveBalance, i: number) => (
+                  <BalanceCard key={b.code} bal={b} index={i} />
+                ))
+              )}
+              <View style={s.recentActivityRow}>
+                <Typography style={s.sectionTitle}>Recent Activity</Typography>
+              </View>
+            </>
+          }
+          renderItem={({ item: req }) => <ActivityAccordionCard req={req} />}
+          renderSkeleton={() => (
+            <View style={[s.activityCard, { height: normalize(100), backgroundColor: colors.white }]} />
           )}
-
-          <View style={s.recentActivityRow}>
-            <Typography style={s.sectionTitle}>Recent Activity</Typography>
-          </View>
-          
-          <TouchableOpacity activeOpacity={0.8} onPress={toggleActivity}>
-            <BlurView intensity={50} tint="light" style={s.activityCard}>
-              <View style={s.activityHeader}>
-                <View style={s.activityIcon}><XCircle size={16} color={colors.text.muted} /></View>
-              <View style={{ flex: 1, marginLeft: 10 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Typography style={s.activityTitle}>Early Leave</Typography>
-                  <View style={s.statusTag}><Typography style={s.statusTagText}>Cancelled</Typography></View>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <CalendarRange size={12} color={colors.primary} />
-                    <Typography style={s.activityMeta}>06 Jul — 06 Jul, 2026</Typography>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Clock size={12} color={colors.primary} />
-                    <Typography style={s.activityMeta}>1.00 Day</Typography>
-                  </View>
-                </View>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                {activityExpanded ? <ChevronDown size={20} color={colors.text.muted} style={{ transform: [{ rotate: '180deg' }] }} /> : <ChevronDown size={20} color={colors.text.muted} />}
-              </View>
-            </View>
-            
-            <Animated.View style={[s.activityReason, activityStyle, { borderTopWidth: activityExpanded ? 1 : 0, borderTopColor: 'rgba(0,0,0,0.05)' }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <FileText size={12} color={colors.text.muted} />
-                <Typography style={s.activityReasonTitle}>LEAVE REASON</Typography>
-              </View>
-              <Typography style={s.activityReasonText}>
-                Requesting early leave due to a sudden family medical emergency. My grandfather's health has unexpectedly deteriorated, and I need to accompany him to the hospital as there is no one else available to assist him.
-              </Typography>
-              </Animated.View>
-            </BlurView>
-          </TouchableOpacity>
-
-        </ScrollView>
+        />
       ) : (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={s.content}>
-           <BlurView intensity={60} tint="light" style={s.calendarWrapper}>
-            
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', paddingRight: normalize(16), paddingTop: normalize(16), gap: normalize(4) }}>
-               <Typography style={{ fontSize: normalize(12), color: colors.success, fontWeight: '700' }}>
-                 {requests.filter(r => r.status === 'Approved').length} approved
-               </Typography>
-               <Typography style={{ fontSize: normalize(12), color: colors.text.muted, fontWeight: '700', marginHorizontal: 2 }}>·</Typography>
-               <Typography style={{ fontSize: normalize(12), color: colors.warning, fontWeight: '700' }}>
-                 {requests.filter(r => r.status === 'Pending').length} pending
-               </Typography>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+          <BlurView intensity={60} tint="light" style={s.calendarWrapper}>
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingHorizontal: normalize(16),
+                paddingTop: normalize(16),
+              }}
+            >
+              <Typography style={{ fontSize: normalize(13), fontWeight: '800', color: colors.black }}>
+                Leave Calendar
+              </Typography>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(6) }}>
+                <Typography style={{ fontSize: normalize(12), color: colors.success, fontWeight: '700' }}>
+                  {requests.filter((r) => (r.status || '').toLowerCase() === 'approved').length} approved
+                </Typography>
+                <Typography style={{ fontSize: normalize(12), color: colors.text.muted, fontWeight: '700' }}>·</Typography>
+                <Typography style={{ fontSize: normalize(12), color: colors.warning, fontWeight: '700' }}>
+                  {requests.filter((r) => (r.status || '').toLowerCase().includes('pending')).length} pending
+                </Typography>
+              </View>
             </View>
 
             <Calendar
-              current={moment().format('YYYY-MM-DD')}
-              markedDates={requests.reduce((acc: any, curr) => {
-                const isApproved = curr.status === 'Approved';
-                const color = isApproved ? colors.success : colors.warning;
-                acc[curr.start_date] = { 
-                  customStyles: { 
-                    container: { backgroundColor: color + '18', borderRadius: normalize(8) },
-                    text: { color: color, fontWeight: '800' }
-                  } 
-                };
-                return acc;
-              }, {})}
+              current={selectedCalendarDate || moment().format('YYYY-MM-DD')}
+              onDayPress={(day: any) => {
+                Haptics.selectionAsync();
+                setSelectedCalendarDate(day.dateString);
+              }}
+              markedDates={calendarMarkedDates}
               markingType={'custom'}
               theme={{
                 calendarBackground: 'transparent',
                 textSectionTitleColor: colors.text.muted,
                 todayTextColor: colors.primary,
                 dayTextColor: colors.black,
-                textDisabledColor: colors.text.light,
+                textDisabledColor: colors.text.muted,
                 arrowColor: colors.primary,
                 monthTextColor: colors.black,
                 textMonthFontWeight: '800',
                 textDayHeaderFontWeight: '700',
               }}
             />
-            
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', padding: normalize(16), gap: normalize(12), borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' }}>
-               <Typography style={{ fontSize: normalize(11), color: colors.text.primary, fontWeight: '700' }}>Status:</Typography>
-               
-               <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(6) }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.success }} />
-                  <Typography style={{ fontSize: normalize(11), color: colors.text.secondary }}>Approved</Typography>
-               </View>
-               
-               <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(6) }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.warning }} />
-                  <Typography style={{ fontSize: normalize(11), color: colors.text.secondary }}>Pending TL</Typography>
-               </View>
-               
-               <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(6) }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3b82f6' }} />
-                  <Typography style={{ fontSize: normalize(11), color: colors.text.secondary }}>Pending HR</Typography>
-               </View>
-               
-               <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(6) }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.error }} />
-                  <Typography style={{ fontSize: normalize(11), color: colors.text.secondary }}>Rejected</Typography>
-               </View>
-               
-               <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(6) }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.text.muted }} />
-                  <Typography style={{ fontSize: normalize(11), color: colors.text.secondary }}>Cancelled</Typography>
-               </View>
-               
-               <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(6) }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#EA580C' }} />
-                  <Typography style={{ fontSize: normalize(11), color: colors.text.secondary }}>Public Holiday</Typography>
-               </View>
+
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                padding: normalize(14),
+                gap: normalize(10),
+                borderTopWidth: 1,
+                borderTopColor: 'rgba(0,0,0,0.05)',
+              }}
+            >
+              <Typography style={{ fontSize: normalize(10), color: colors.text.muted, fontWeight: '800', letterSpacing: 0.5 }}>
+                STATUS:
+              </Typography>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(4) }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.success }} />
+                <Typography style={{ fontSize: normalize(11), color: colors.text.secondary, fontWeight: '700' }}>Approved</Typography>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(4) }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.emailBlue }} />
+                <Typography style={{ fontSize: normalize(11), color: colors.text.secondary, fontWeight: '700' }}>Pending HR</Typography>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(4) }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.warning }} />
+                <Typography style={{ fontSize: normalize(11), color: colors.text.secondary, fontWeight: '700' }}>Pending TL</Typography>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(4) }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.error }} />
+                <Typography style={{ fontSize: normalize(11), color: colors.text.secondary, fontWeight: '700' }}>Rejected</Typography>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(4) }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.text.muted }} />
+                <Typography style={{ fontSize: normalize(11), color: colors.text.secondary, fontWeight: '700' }}>Cancelled</Typography>
+              </View>
             </View>
           </BlurView>
+
+          {/* Agenda Event Cards for Selected Date */}
+          <View style={{ marginTop: normalize(16) }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: normalize(10) }}>
+              <Typography style={{ fontSize: normalize(14), fontWeight: '800', color: colors.black }}>
+                {moment(selectedCalendarDate).format('dddd, DD MMM YYYY')}
+              </Typography>
+              <Typography style={{ fontSize: normalize(11), fontWeight: '700', color: colors.text.muted }}>
+                {selectedDateRequests.length} {selectedDateRequests.length === 1 ? 'request' : 'requests'}
+              </Typography>
+            </View>
+
+            {selectedDateRequests.length === 0 ? (
+              <View style={{ backgroundColor: 'rgba(255,255,255,0.65)', borderRadius: normalize(14), padding: normalize(16), alignItems: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)' }}>
+                <Typography style={{ fontSize: normalize(12), color: colors.text.muted, fontWeight: '600', marginBottom: normalize(8) }}>
+                  No leave requests for this date.
+                </Typography>
+                <TouchableOpacity
+                  onPress={async () => {
+                    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setIsApplyModalVisible(true);
+                  }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(4), backgroundColor: colors.primary + '12', paddingHorizontal: normalize(12), paddingVertical: normalize(6), borderRadius: normalize(8) }}
+                >
+                  <Plus size={14} color={colors.primary} />
+                  <Typography style={{ fontSize: normalize(12), fontWeight: '700', color: colors.primary }}>
+                    Apply Leave
+                  </Typography>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              selectedDateRequests.map((req: any) => {
+                const statusStr = req.status ? req.status.charAt(0).toUpperCase() + req.status.slice(1).replace('_', ' ') : 'Pending';
+                const statusColor = getStatusColor(statusStr);
+
+                return (
+                  <TouchableOpacity
+                    key={req.id}
+                    activeOpacity={0.82}
+                    onPress={() => {
+                      setSelectedRequest(req);
+                      setIsDetailsModalVisible(true);
+                    }}
+                    style={{
+                      backgroundColor: colors.white,
+                      borderRadius: normalize(14),
+                      padding: normalize(14),
+                      marginBottom: normalize(10),
+                      borderLeftWidth: 4,
+                      borderLeftColor: statusColor,
+                      borderWidth: 1,
+                      borderColor: 'rgba(0,0,0,0.06)',
+                      shadowColor: colors.black,
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.05,
+                      shadowRadius: 4,
+                      elevation: 2,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: normalize(6) }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(6) }}>
+                        <Typography style={{ fontSize: normalize(14), fontWeight: '800', color: colors.black }}>
+                          {req.leaveTypeName || 'Leave'}
+                        </Typography>
+                        {req.leaveTypeCode && (
+                          <View style={{ backgroundColor: colors.primary + '12', paddingHorizontal: normalize(6), paddingVertical: normalize(2), borderRadius: normalize(4) }}>
+                            <Typography style={{ fontSize: normalize(10), fontWeight: '800', color: colors.primary }}>
+                              {req.leaveTypeCode}
+                            </Typography>
+                          </View>
+                        )}
+                      </View>
+                      <View style={{ backgroundColor: statusColor + '15', paddingHorizontal: normalize(8), paddingVertical: normalize(3), borderRadius: normalize(6) }}>
+                        <Typography style={{ fontSize: normalize(10), fontWeight: '800', color: statusColor }}>
+                          {statusStr}
+                        </Typography>
+                      </View>
+                    </View>
+
+                    <Typography style={{ fontSize: normalize(12), color: colors.text.secondary, fontWeight: '600', marginBottom: normalize(6) }}>
+                      {moment(req.startDate).format('DD MMM')} — {moment(req.endDate).format('DD MMM YYYY')} · {req.days || 1} day(s) ({(req.dayType || 'full_day').replace('_', ' ')})
+                    </Typography>
+
+                    {req.reason && (
+                      <Typography numberOfLines={2} style={{ fontSize: normalize(12), color: colors.text.primary, lineHeight: normalize(17) }}>
+                        {req.reason}
+                      </Typography>
+                    )}
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </View>
         </ScrollView>
       )}
     </Animated.View>
@@ -368,495 +906,734 @@ export const LeaveScreen: React.FC = () => {
 
   const renderManagementTab = () => (
     <Animated.View style={{ flex: 1 }} entering={FadeInDown.duration(300)}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        <View style={s.mgtHeader}>
-          <View style={{ flex: 1 }}>
-            <Typography variant="h2" style={s.pageTitle}>Leave Management</Typography>
-            <Typography style={s.pageSubtitle}>Manage your leave requests and balances.</Typography>
-          </View>
-          <TouchableOpacity activeOpacity={0.8} onPress={async () => { await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setIsApplyModalVisible(true); }} style={s.mgtApplyBtn}>
-            <LinearGradient colors={colors.loginButtonBgGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.mgtApplyGrad}>
-              <Plus size={16} color={colors.white} />
-              <Typography style={s.mgtApplyText}>Apply Leave</Typography>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.statScroll}>
-          <BlurView intensity={50} tint="light" style={s.statCard}>
-            <View style={[s.statIconWrap, { backgroundColor: colors.text.muted + '18' }]}><FileText size={normalize(18)} color={colors.text.muted} /></View>
-            <Typography style={[s.statValue, { color: colors.text.primary }]}>1</Typography>
-            <Typography style={s.statLabel} numberOfLines={2}>Requests</Typography>
-          </BlurView>
-          <BlurView intensity={50} tint="light" style={s.statCard}>
-            <View style={[s.statIconWrap, { backgroundColor: colors.success + '18' }]}><CheckCircle2 size={normalize(18)} color={colors.success} /></View>
-            <Typography style={[s.statValue, { color: colors.success }]}>0</Typography>
-            <Typography style={s.statLabel} numberOfLines={2}>Approved</Typography>
-          </BlurView>
-          <BlurView intensity={50} tint="light" style={s.statCard}>
-            <View style={[s.statIconWrap, { backgroundColor: colors.error + '18' }]}><XCircle size={normalize(18)} color={colors.error} /></View>
-            <Typography style={[s.statValue, { color: colors.error }]}>0</Typography>
-            <Typography style={s.statLabel} numberOfLines={2}>Rejected</Typography>
-          </BlurView>
-          <BlurView intensity={50} tint="light" style={s.statCard}>
-            <View style={[s.statIconWrap, { backgroundColor: colors.warning + '18' }]}><Clock size={normalize(18)} color={colors.warning} /></View>
-            <Typography style={[s.statValue, { color: colors.warning }]}>0</Typography>
-            <Typography style={s.statLabel} numberOfLines={2}>Pending</Typography>
-          </BlurView>
-        </ScrollView>
-
-        <View style={s.filterRow}>
-          <View style={s.searchBox}>
-            <Search size={16} color={colors.text.muted} />
-            <TextInput placeholder="Search..." style={s.searchInput} placeholderTextColor={colors.text.light} />
-          </View>
-          <TouchableOpacity style={s.filterBtn}>
-            <Filter size={16} color={colors.text.primary} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Request List (Mobile optimized cards matching Attendance history style) */}
-        {requests.map((req, i) => (
-          <TouchableOpacity activeOpacity={0.8} key={req.id}>
-            <BlurView intensity={50} tint="light" style={s.activityCard}>
-              <View style={s.activityHeader}>
-                <View style={s.activityIcon}><CalendarRange size={16} color={colors.primary} /></View>
-                <View style={{ flex: 1, marginLeft: 10 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Typography style={s.activityTitle}>{req.leave_type} Leave</Typography>
-                  <View style={[s.statusTag, { backgroundColor: getStatusColor(req.status) + '15' }]}>
-                    <Typography style={[s.statusTagText, { color: getStatusColor(req.status) }]}>{req.status}</Typography>
-                  </View>
+      <InfiniteList
+        data={requests}
+        isLoading={isReqLoading}
+        isFetchingNextPage={isFetchingNextPage}
+        hasNextPage={!!hasNextPage}
+        onLoadMore={() => fetchNextPage()}
+        onRefresh={() => refetch()}
+        isRefreshing={isRefetching}
+        contentContainerStyle={s.content}
+        emptyMessage="No leave requests found"
+        ListHeaderComponent={
+          <>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.statScroll}>
+              <BlurView intensity={50} tint="light" style={s.statCard}>
+                <View style={[s.statIconWrap, { backgroundColor: colors.text.muted + '18' }]}>
+                  <FileText size={normalize(16)} color={colors.text.muted} />
                 </View>
-                <View style={{ gap: 4, marginTop: 6 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <CalendarRange size={12} color={colors.text.muted} />
-                    <Typography style={s.activityMeta}>{req.start_date} — {req.end_date}</Typography>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Clock size={12} color={colors.text.muted} />
-                    <Typography style={s.activityMeta}>{req.total_days.toFixed(2)} Day(s)</Typography>
-                  </View>
+                <Typography style={[s.statValue, { color: colors.text.primary }]}>{mgtMetrics.total}</Typography>
+                <Typography style={s.statLabel} numberOfLines={2}>Requests</Typography>
+              </BlurView>
+              <BlurView intensity={50} tint="light" style={s.statCard}>
+                <View style={[s.statIconWrap, { backgroundColor: colors.success + '18' }]}>
+                  <CheckCircle2 size={normalize(16)} color={colors.success} />
                 </View>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Typography style={s.activityApplied}>ID</Typography>
-                <Typography style={s.activityAppliedVal}>#{req.id}</Typography>
-              </View>
-            </View>
-            <View style={[s.activityReason, { marginTop: normalize(16), paddingTop: normalize(12), borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <FileText size={12} color={colors.text.muted} />
-                <Typography style={s.activityReasonTitle}>REASON</Typography>
-              </View>
-              <Typography style={s.activityReasonText} numberOfLines={2}>
-                {req.reason}
-              </Typography>
-            </View>
-            </BlurView>
-          </TouchableOpacity>
-        ))}
+                <Typography style={[s.statValue, { color: colors.success }]}>{mgtMetrics.approved}</Typography>
+                <Typography style={s.statLabel} numberOfLines={2}>Approved</Typography>
+              </BlurView>
+              <BlurView intensity={50} tint="light" style={s.statCard}>
+                <View style={[s.statIconWrap, { backgroundColor: colors.error + '18' }]}>
+                  <XCircle size={normalize(16)} color={colors.error} />
+                </View>
+                <Typography style={[s.statValue, { color: colors.error }]}>{mgtMetrics.rejected}</Typography>
+                <Typography style={s.statLabel} numberOfLines={2}>Rejected</Typography>
+              </BlurView>
+              <BlurView intensity={50} tint="light" style={s.statCard}>
+                <View style={[s.statIconWrap, { backgroundColor: colors.warning + '18' }]}>
+                  <Clock size={normalize(16)} color={colors.warning} />
+                </View>
+                <Typography style={[s.statValue, { color: colors.warning }]}>{mgtMetrics.pending}</Typography>
+                <Typography style={s.statLabel} numberOfLines={2}>Pending</Typography>
+              </BlurView>
+            </ScrollView>
 
-      </ScrollView>
+            {/* UICoreSearch Bar with Filter Button */}
+            {(() => {
+              const myHasActiveFilters = !!(
+                myFilters.statusFilter ||
+                myFilters.leaveTypeIdFilter ||
+                myFilters.fromDate ||
+                myFilters.toDate ||
+                myFilters.quickDate
+              );
+              return (
+                <>
+                  <View style={s.searchRow}>
+                    <View style={{ flex: 1 }}>
+                      <UICoreSearch
+                        value={myFilters.searchQuery}
+                        onChangeText={(val) => setMyFilters((prev) => ({ ...prev, searchQuery: val }))}
+                        onClear={() => setMyFilters((prev) => ({ ...prev, searchQuery: '' }))}
+                        placeholder="Search request ID, type, reason..."
+                        containerStyle={{ marginBottom: 0 }}
+                      />
+                    </View>
+                    <TouchableOpacity
+                      style={[
+                        s.filterBtn,
+                        myHasActiveFilters && {
+                          backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                          borderColor: colors.primary,
+                        },
+                      ]}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setIsFilterModalVisible(true);
+                      }}
+                    >
+                      <SlidersHorizontal size={18} color={myHasActiveFilters ? colors.primary : colors.text.primary} />
+                      {myHasActiveFilters && (
+                        <View
+                          style={{
+                            position: 'absolute',
+                            top: normalize(6),
+                            right: normalize(6),
+                            width: normalize(8),
+                            height: normalize(8),
+                            borderRadius: normalize(4),
+                            backgroundColor: colors.primary,
+                          }}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Active Filter Chips */}
+                  {myHasActiveFilters && (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ gap: normalize(8), paddingBottom: normalize(8) }}
+                    >
+                      {!!myFilters.statusFilter && (
+                        <TouchableOpacity
+                          onPress={() => setMyFilters((prev) => ({ ...prev, statusFilter: '' }))}
+                          style={s.activeChip}
+                        >
+                          <Typography style={s.activeChipText}>Status: {myFilters.statusFilter.replace('_', ' ')}</Typography>
+                          <X size={12} color={colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                      {!!myFilters.leaveTypeIdFilter && (
+                        <TouchableOpacity
+                          onPress={() => setMyFilters((prev) => ({ ...prev, leaveTypeIdFilter: '' }))}
+                          style={s.activeChip}
+                        >
+                          <Typography style={s.activeChipText}>
+                            Type: {typeOptions.find((t) => t.value === myFilters.leaveTypeIdFilter)?.label || 'Selected'}
+                          </Typography>
+                          <X size={12} color={colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                      {(!!myFilters.fromDate || !!myFilters.toDate) && (
+                        <TouchableOpacity
+                          onPress={() =>
+                            setMyFilters((prev) => ({ ...prev, fromDate: '', toDate: '', quickDate: '' }))
+                          }
+                          style={s.activeChip}
+                        >
+                          <Typography style={s.activeChipText}>
+                            Date: {myFilters.fromDate ? moment(myFilters.fromDate).format('DD MMM YYYY') : ''}
+                            {myFilters.fromDate && myFilters.toDate ? ' - ' : ''}
+                            {myFilters.toDate ? moment(myFilters.toDate).format('DD MMM YYYY') : ''}
+                          </Typography>
+                          <X size={12} color={colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                    </ScrollView>
+                  )}
+                </>
+              );
+            })()}
+          </>
+        }
+        renderItem={({ item: req }) => (
+          <LeaveRequestCard
+            req={req}
+            onPress={async () => {
+              await Haptics.selectionAsync();
+              setSelectedRequest(req);
+              setIsDetailsModalVisible(true);
+            }}
+            onCancel={handlePressDelete}
+          />
+        )}
+        renderSkeleton={() => (
+          <View style={[s.mobileCardWrapper, { height: normalize(80), backgroundColor: colors.white }]} />
+        )}
+      />
     </Animated.View>
   );
 
-  const renderApplyModal = () => {
-
-    const isSameDate = startDate === endDate && startDate !== '';
-    const selectedDays = startDate && endDate ? moment(endDate).diff(moment(startDate), 'days') + 1 : 0;
-    
-    // Mock balances based on screenshot
-    const availableBalance = 2.50; 
-    const usedBalance = 0.00;
-    const isOverBalance = selectedDays > availableBalance;
-
-    return (
-      <Modal visible={isApplyModalVisible} animationType="slide" transparent>
-        <View style={s.modalOverlay}>
-          <Animated.View entering={FadeInUp.springify()} style={[s.modalContent, { paddingBottom: insets.bottom || 24, position: 'relative' }]}>
-            
-            {/* The Date Picker Overlay (Avoids nested Modals which break on iOS) */}
-            {activeDatePicker && (
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.white, borderRadius: normalize(24), zIndex: 100 }]}>
-                <View style={s.modalHeaderRow}>
-                  <Typography variant="h3" style={s.modalTitle}>
-                    Select {activeDatePicker === 'start' ? 'From Date' : 'To Date'}
-                  </Typography>
-                  <TouchableOpacity onPress={() => { setActiveDatePicker(null); setTempDate(''); }} style={s.modalCloseBtn}>
-                    <XCircle size={24} color={colors.text.muted} />
-                  </TouchableOpacity>
-                </View>
-                <View style={[s.calendarWrapper, { marginHorizontal: normalize(24), marginVertical: normalize(16), borderWidth: 0 }]}>
-                  <Calendar
-                    current={tempDate || (activeDatePicker === 'start' ? startDate : endDate) || moment().format('YYYY-MM-DD')}
-                    markedDates={{
-                      [tempDate || (activeDatePicker === 'start' ? startDate : endDate)]: { selected: true, selectedColor: colors.primary, selectedTextColor: colors.white }
-                    }}
-                    onDayPress={(day: any) => setTempDate(day.dateString)}
-                    theme={{
-                      calendarBackground: 'transparent',
-                      textSectionTitleColor: colors.text.muted,
-                      todayTextColor: colors.primary,
-                      dayTextColor: colors.text.primary,
-                      textDisabledColor: 'rgba(0,0,0,0.1)',
-                      monthTextColor: colors.text.primary,
-                      textDayFontFamily: 'DMSans-Medium',
-                      textMonthFontFamily: 'DMSans-Bold',
-                      textDayHeaderFontFamily: 'DMSans-Medium',
-                    }}
-                  />
-                </View>
-                <View style={[s.modalFooter, { marginTop: 'auto' }]}>
-                   <TouchableOpacity style={s.cancelBtn} onPress={() => { setActiveDatePicker(null); setTempDate(''); }}>
-                     <Typography style={s.cancelBtnText}>Cancel</Typography>
-                   </TouchableOpacity>
-                   <TouchableOpacity style={[s.submitBtn, !tempDate && { opacity: 0.5 }]} onPress={() => {
-                     if (activeDatePicker === 'start') setStartDate(tempDate);
-                     else setEndDate(tempDate);
-                     setActiveDatePicker(null);
-                     setTempDate('');
-                   }} disabled={!tempDate}>
-                     <Typography style={s.submitBtnText}>OK</Typography>
-                   </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            <View style={s.modalHeaderRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                <View style={s.modalIconBg}><CalendarRange size={20} color={colors.primary} /></View>
-                <View style={{ flex: 1 }}>
-                  <Typography variant="h3" style={s.modalTitle}>Apply for Leave</Typography>
-                  <Typography style={[s.modalSub, { flexWrap: 'wrap' }]}>Your request will be sent to your reporting manager for approval.</Typography>
-                </View>
-              </View>
-              <TouchableOpacity onPress={() => setIsApplyModalVisible(false)} style={s.modalCloseBtn}>
-                <XCircle size={24} color={colors.text.muted} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView 
-              style={s.modalScroll} 
-              contentContainerStyle={{ paddingBottom: normalize(80) }}
-              showsVerticalScrollIndicator={false}
-            >
-              
-              <View style={s.inputGroup}>
-                <SelectDropdown
-                  label="Leave Type"
-                  required
-                  placeholder="Select leave type..."
-                  options={[
-                    { id: 'Casual Leave (CL)', label: 'Casual Leave (CL)' },
-                    { id: 'Compensatory leave (OT)', label: 'Compensatory leave (OT) — 0 Balance', disabled: true },
-                    { id: 'Early Leave (EL)', label: 'Early Leave (EL)' },
-                    { id: 'Leave Without Pay (LWP)', label: 'Leave Without Pay (LWP)' },
-                    { id: 'Sick Leave (SL)', label: 'Sick Leave (SL)' },
-                  ] as any}
-                  value={leaveType}
-                  onChange={(val) => setLeaveType(val as string)}
-                />
-              </View>
-
-              <View style={s.balanceInfoBox}>
-                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <FileText size={16} color={colors.text.primary} />
-                    <Typography style={s.balanceInfoLabel}>Available balance</Typography>
-                    <Typography style={s.balanceInfoSub}>(Used: {usedBalance.toFixed(2)})</Typography>
-                 </View>
-                 <View style={s.balanceInfoTag}>
-                    <Typography style={s.balanceInfoTagText}>{availableBalance} days</Typography>
-                 </View>
-              </View>
-
-              <View style={s.dividerContainer}><View style={s.dividerLine} /><Typography style={s.dividerText}>Duration</Typography><View style={s.dividerLine} /></View>
-
-              <View style={s.rowInputs}>
-                <View style={[s.inputGroup, { flex: 1 }]}>
-                  <Typography style={s.inputLabel}>FROM DATE <Typography style={{ color: colors.error }}>*</Typography></Typography>
-                  <TouchableOpacity style={s.inputWrapper} onPress={() => { setTempDate(startDate); setActiveDatePicker('start'); }}>
-                    <TextInput style={s.modalInputWithIcon} placeholder="Select Date" value={startDate ? moment(startDate).format('MMM DD, YYYY') : ''} editable={false} pointerEvents="none" />
-                    <CalendarRange size={16} color={colors.text.muted} style={s.inputIconRight} />
-                  </TouchableOpacity>
-                </View>
-                <View style={[s.inputGroup, { flex: 1 }]}>
-                  <Typography style={s.inputLabel}>TO DATE <Typography style={{ color: colors.error }}>*</Typography></Typography>
-                  <TouchableOpacity style={s.inputWrapper} onPress={() => { setTempDate(endDate); setActiveDatePicker('end'); }}>
-                    <TextInput style={s.modalInputWithIcon} placeholder="Select Date" value={endDate ? moment(endDate).format('MMM DD, YYYY') : ''} editable={false} pointerEvents="none" />
-                    <CalendarRange size={16} color={colors.text.muted} style={s.inputIconRight} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: normalize(16) }}>
-                <Clock size={12} color={colors.text.muted} />
-                <Typography style={s.inputHelpText}>Weekends & public holidays are automatically excluded from the day count</Typography>
-              </View>
-
-              <View style={s.rowInputs}>
-                <View style={[s.inputGroup, { flex: 1 }]}>
-                  <Typography style={s.inputLabel}>No. of Days</Typography>
-                  <View style={s.inputWrapper}>
-                    <CalendarRange size={16} color={colors.text.muted} style={s.inputIconLeft} />
-                    <TextInput style={[s.modalInputDisabled, { paddingLeft: 36 }]} value={selectedDays ? `${selectedDays} days` : ''} editable={false} />
-                  </View>
-                </View>
-                <View style={[s.inputGroup, { flex: 1 }]}>
-                  {isSameDate ? (
-                    <SelectDropdown
-                      label="Day Type"
-                      options={[
-                        { id: 'Full Day', label: 'Full Day' },
-                        { id: 'First Half', label: 'First Half' },
-                        { id: 'Second Half', label: 'Second Half' },
+  const renderBalancesTab = () => (
+    <Animated.View entering={FadeInDown.duration(300)} style={{ flex: 1 }}>
+      <InfiniteList
+        data={adminBalances}
+        isLoading={isAdminBalancesLoading}
+        isFetchingNextPage={balancesIsFetchingNextPage}
+        hasNextPage={!!balancesHasNextPage}
+        onLoadMore={() => balancesFetchNextPage()}
+        onRefresh={() => balancesRefetch()}
+        isRefreshing={balancesIsRefetching}
+        contentContainerStyle={s.content}
+        emptyMessage="No leave balances found"
+        ListHeaderComponent={
+          <>
+            {/* Search Bar + Filter Button */}
+            {(() => {
+              const balanceHasActiveFilters = !!(
+                balanceFilters.yearFilter ||
+                balanceFilters.leaveTypeIdFilter ||
+                balanceFilters.departmentFilter ||
+                balanceFilters.employeeFilter
+              );
+              return (
+                <>
+                  <View style={s.searchRow}>
+                    <View style={{ flex: 1 }}>
+                      <UICoreSearch
+                        value={balanceFilters.searchQuery}
+                        onChangeText={(val) => setBalanceFilters((prev) => ({ ...prev, searchQuery: val }))}
+                        onClear={() => setBalanceFilters((prev) => ({ ...prev, searchQuery: '' }))}
+                        placeholder="Search employee, leave type..."
+                        containerStyle={{ marginBottom: 0 }}
+                      />
+                    </View>
+                    <TouchableOpacity
+                      style={[
+                        s.filterBtn,
+                        balanceHasActiveFilters && {
+                          backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                          borderColor: colors.primary,
+                        },
                       ]}
-                      value={dayType}
-                      onChange={(val) => setDayType(val as string)}
-                    />
-                  ) : (
-                    <>
-                      <Typography style={s.inputLabel}>Day Type</Typography>
-                      <TextInput style={s.modalInputDisabled} value="Full Day" editable={false} />
-                      <Typography style={[s.inputHelpText, { marginTop: 4 }]}>Half-day: select same From & To date</Typography>
-                    </>
-                  )}
-                </View>
-              </View>
-              
-              {isOverBalance && (
-                <Typography style={{ color: colors.error, fontSize: normalize(12), marginTop: normalize(-8), marginBottom: normalize(16) }}>
-                  Warning: You have requested {selectedDays} days but your balance is only {availableBalance} days.
-                </Typography>
-              )}
-
-              {selectedDays > 0 && (
-                <View style={s.appSummaryBox}>
-                  <Typography style={s.appSummaryTitle}>APPLICATION SUMMARY</Typography>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: normalize(12) }}>
-                    <View style={{ alignItems: 'center' }}>
-                      <Typography style={s.appSummaryLabel}>Leave Type</Typography>
-                      <Typography style={s.appSummaryValue}>CL</Typography>
-                    </View>
-                    <View style={{ alignItems: 'center' }}>
-                      <Typography style={s.appSummaryLabel}>Days Requested</Typography>
-                      <Typography style={s.appSummaryValue}>{selectedDays}</Typography>
-                    </View>
-                    <View style={{ alignItems: 'center' }}>
-                      <Typography style={s.appSummaryLabel}>Balance After</Typography>
-                      <Typography style={[s.appSummaryValue, { color: isOverBalance ? colors.error : colors.warning }]}>
-                        {Math.max(availableBalance - selectedDays, 0)} days
-                      </Typography>
-                    </View>
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setIsFilterModalVisible(true);
+                      }}
+                    >
+                      <SlidersHorizontal size={18} color={balanceHasActiveFilters ? colors.primary : colors.text.primary} />
+                      {balanceHasActiveFilters && (
+                        <View
+                          style={{
+                            position: 'absolute',
+                            top: normalize(6),
+                            right: normalize(6),
+                            width: normalize(8),
+                            height: normalize(8),
+                            borderRadius: normalize(4),
+                            backgroundColor: colors.primary,
+                          }}
+                        />
+                      )}
+                    </TouchableOpacity>
                   </View>
+
+                  {/* Active Filter Chips */}
+                  {balanceHasActiveFilters && (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ gap: normalize(8), paddingBottom: normalize(8) }}
+                    >
+                      {!!balanceFilters.yearFilter && (
+                        <TouchableOpacity
+                          onPress={() => setBalanceFilters((prev) => ({ ...prev, yearFilter: '' }))}
+                          style={s.activeChip}
+                        >
+                          <Typography style={s.activeChipText}>Year: {balanceFilters.yearFilter}</Typography>
+                          <X size={12} color={colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                      {!!balanceFilters.leaveTypeIdFilter && (
+                        <TouchableOpacity
+                          onPress={() => setBalanceFilters((prev) => ({ ...prev, leaveTypeIdFilter: '' }))}
+                          style={s.activeChip}
+                        >
+                          <Typography style={s.activeChipText}>
+                            Type: {typeOptions.find((t) => t.value === balanceFilters.leaveTypeIdFilter)?.label || 'Selected'}
+                          </Typography>
+                          <X size={12} color={colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                      {!!balanceFilters.departmentFilter && (
+                        <TouchableOpacity
+                          onPress={() => setBalanceFilters((prev) => ({ ...prev, departmentFilter: '' }))}
+                          style={s.activeChip}
+                        >
+                          <Typography style={s.activeChipText}>
+                            Department: {departmentOptions.find((d) => d.value === balanceFilters.departmentFilter)?.label || 'Selected'}
+                          </Typography>
+                          <X size={12} color={colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                      {!!balanceFilters.employeeFilter && (
+                        <TouchableOpacity
+                          onPress={() => setBalanceFilters((prev) => ({ ...prev, employeeFilter: '' }))}
+                          style={s.activeChip}
+                        >
+                          <Typography style={s.activeChipText}>
+                            Employee: {employeeOptions.find((e) => e.value === balanceFilters.employeeFilter)?.label || 'Selected'}
+                          </Typography>
+                          <X size={12} color={colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                    </ScrollView>
+                  )}
+                </>
+              );
+            })()}
+          </>
+        }
+        renderItem={({ item: bal }) => (
+          <LeaveBalanceAdminCard
+            balance={bal}
+            onPress={async () => {
+              await Haptics.selectionAsync();
+              setSelectedBalanceForModal(bal);
+              setIsBalanceDetailsModalVisible(true);
+            }}
+          />
+        )}
+        renderSkeleton={() => (
+          <View style={[s.mobileCardWrapper, { height: normalize(80), backgroundColor: colors.white }]} />
+        )}
+      />
+    </Animated.View>
+  );
+
+  const renderApprovalsTab = () => (
+    <Animated.View entering={FadeInDown.duration(300)} style={{ flex: 1 }}>
+      <InfiniteList
+        data={adminRequests}
+        isLoading={isAdminLoading}
+        isFetchingNextPage={isAdminFetchingNextPage}
+        hasNextPage={!!adminHasNextPage}
+        onLoadMore={() => adminFetchNextPage()}
+        onRefresh={() => adminRefetch()}
+        isRefreshing={isAdminRefetching}
+        contentContainerStyle={s.content}
+        emptyMessage="No leave approval requests found"
+        ListHeaderComponent={
+          <>
+            {/* 4 Analytics Cards (Matching Web Design Reference) */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.statScroll}>
+              <View style={[s.approvalStatCard, { borderColor: 'rgba(59, 130, 246, 0.25)', backgroundColor: 'rgba(239, 246, 255, 0.75)' }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                  <Typography style={[s.approvalStatLabel, { color: colors.primary }]}>TOTAL REQUESTS</Typography>
+                  <SlidersHorizontal size={14} color={colors.primary} />
                 </View>
-              )}
-
-              <View style={s.dividerContainer}><View style={s.dividerLine} /><Typography style={s.dividerText}>Details</Typography><View style={s.dividerLine} /></View>
-
-              <View style={s.inputGroup}>
-                <Typography style={s.inputLabel}>Reason <Typography style={{ color: colors.error }}>*</Typography></Typography>
-                <TextInput 
-                  style={[s.modalInput, { height: 100, textAlignVertical: 'top' }]} 
-                  placeholder="Describe the reason for leave..." 
-                  multiline 
-                  value={reason} 
-                  onChangeText={setReason} 
-                />
-                <Typography style={s.inputHelpText}>0/500 characters</Typography>
+                <Typography style={[s.approvalStatVal, { color: colors.primary }]}>{adminSummary.total ?? 0}</Typography>
+                <Typography style={s.approvalStatSub}>All time</Typography>
               </View>
 
-              <View style={s.inputGroup}>
-                <Typography style={s.inputLabel}>ATTACHMENT (optional · PDF / JPG / PNG · max 5 MB)</Typography>
-                <TouchableOpacity style={s.uploadBox} activeOpacity={0.7}>
-                  <UploadCloud size={24} color={colors.text.muted} />
-                  <Typography style={s.uploadTitle}>Click to upload</Typography>
-                  <Typography style={s.uploadSub}>PDF, JPG or PNG up to 5 MB</Typography>
-                </TouchableOpacity>
+              <View style={[s.approvalStatCard, { borderColor: 'rgba(245, 158, 11, 0.3)', backgroundColor: 'rgba(254, 243, 199, 0.75)' }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                  <Typography style={[s.approvalStatLabel, { color: colors.warning }]}>PENDING</Typography>
+                  <Clock size={14} color={colors.warning} />
+                </View>
+                <Typography style={[s.approvalStatVal, { color: colors.warning }]}>{adminSummary.pending ?? 0}</Typography>
+                <Typography style={s.approvalStatSub}>Awaiting action</Typography>
               </View>
 
+              <View style={[s.approvalStatCard, { borderColor: 'rgba(16, 185, 129, 0.3)', backgroundColor: 'rgba(209, 250, 229, 0.75)' }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                  <Typography style={[s.approvalStatLabel, { color: colors.success }]}>APPROVED</Typography>
+                  <CheckCircle2 size={14} color={colors.success} />
+                </View>
+                <Typography style={[s.approvalStatVal, { color: colors.success }]}>{adminSummary.approved ?? 0}</Typography>
+                <Typography style={s.approvalStatSub}>Granted</Typography>
+              </View>
+
+              <View style={[s.approvalStatCard, { borderColor: 'rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(254, 226, 226, 0.75)' }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                  <Typography style={[s.approvalStatLabel, { color: colors.error }]}>REJECTED</Typography>
+                  <XCircle size={14} color={colors.error} />
+                </View>
+                <Typography style={[s.approvalStatVal, { color: colors.error }]}>{adminSummary.rejected ?? 0}</Typography>
+                <Typography style={s.approvalStatSub}>Declined</Typography>
+              </View>
             </ScrollView>
 
-            <View style={s.modalFooter}>
-               <TouchableOpacity style={s.cancelBtn} onPress={() => setIsApplyModalVisible(false)}>
-                 <Typography style={s.cancelBtnText}>Cancel</Typography>
-               </TouchableOpacity>
-               <TouchableOpacity style={s.submitBtn} onPress={handleApplyLeave}>
-                 {isSubmitting ? <ActivityIndicator color={colors.white} /> : <Typography style={s.submitBtnText}>Submit Request</Typography>}
-               </TouchableOpacity>
-            </View>
-          </Animated.View>
-        </View>
-      </Modal>
-    );
-  };
+            {/* Search Bar + Filter Button */}
+            {(() => {
+              const approvalHasActiveFilters = !!(
+                approvalFilters.statusFilter ||
+                approvalFilters.leaveTypeIdFilter ||
+                approvalFilters.fromDate ||
+                approvalFilters.toDate ||
+                approvalFilters.departmentFilter ||
+                approvalFilters.employeeFilter ||
+                approvalFilters.quickDate
+              );
+              return (
+                <>
+                  <View style={s.searchRow}>
+                    <View style={{ flex: 1 }}>
+                      <UICoreSearch
+                        value={approvalFilters.searchQuery}
+                        onChangeText={(val) => setApprovalFilters((prev) => ({ ...prev, searchQuery: val }))}
+                        onClear={() => setApprovalFilters((prev) => ({ ...prev, searchQuery: '' }))}
+                        placeholder="Search request ID, employee, type..."
+                        containerStyle={{ marginBottom: 0 }}
+                      />
+                    </View>
+                    <TouchableOpacity
+                      style={[
+                        s.filterBtn,
+                        approvalHasActiveFilters && {
+                          backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                          borderColor: colors.primary,
+                        },
+                      ]}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setIsFilterModalVisible(true);
+                      }}
+                    >
+                      <SlidersHorizontal size={18} color={approvalHasActiveFilters ? colors.primary : colors.text.primary} />
+                      {approvalHasActiveFilters && (
+                        <View
+                          style={{
+                            position: 'absolute',
+                            top: normalize(6),
+                            right: normalize(6),
+                            width: normalize(8),
+                            height: normalize(8),
+                            borderRadius: normalize(4),
+                            backgroundColor: colors.primary,
+                          }}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Active Filter Chips */}
+                  {approvalHasActiveFilters && (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ gap: normalize(8), paddingBottom: normalize(8) }}
+                    >
+                      {!!approvalFilters.statusFilter && (
+                        <TouchableOpacity
+                          onPress={() => setApprovalFilters((prev) => ({ ...prev, statusFilter: '' }))}
+                          style={s.activeChip}
+                        >
+                          <Typography style={s.activeChipText}>Status: {approvalFilters.statusFilter.replace('_', ' ')}</Typography>
+                          <X size={12} color={colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                      {!!approvalFilters.leaveTypeIdFilter && (
+                        <TouchableOpacity
+                          onPress={() => setApprovalFilters((prev) => ({ ...prev, leaveTypeIdFilter: '' }))}
+                          style={s.activeChip}
+                        >
+                          <Typography style={s.activeChipText}>
+                            Type: {typeOptions.find((t) => t.value === approvalFilters.leaveTypeIdFilter)?.label || 'Selected'}
+                          </Typography>
+                          <X size={12} color={colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                      {!!approvalFilters.departmentFilter && (
+                        <TouchableOpacity
+                          onPress={() => setApprovalFilters((prev) => ({ ...prev, departmentFilter: '' }))}
+                          style={s.activeChip}
+                        >
+                          <Typography style={s.activeChipText}>
+                            Department: {departmentOptions.find((d) => d.value === approvalFilters.departmentFilter)?.label || 'Selected'}
+                          </Typography>
+                          <X size={12} color={colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                      {!!approvalFilters.employeeFilter && (
+                        <TouchableOpacity
+                          onPress={() => setApprovalFilters((prev) => ({ ...prev, employeeFilter: '' }))}
+                          style={s.activeChip}
+                        >
+                          <Typography style={s.activeChipText}>
+                            Employee: {employeeOptions.find((e) => e.value === approvalFilters.employeeFilter)?.label || 'Selected'}
+                          </Typography>
+                          <X size={12} color={colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                      {(!!approvalFilters.fromDate || !!approvalFilters.toDate) && (
+                        <TouchableOpacity
+                          onPress={() =>
+                            setApprovalFilters((prev) => ({ ...prev, fromDate: '', toDate: '', quickDate: '' }))
+                          }
+                          style={s.activeChip}
+                        >
+                          <Typography style={s.activeChipText}>
+                            Date: {approvalFilters.fromDate ? moment(approvalFilters.fromDate).format('DD MMM YYYY') : ''}
+                            {approvalFilters.fromDate && approvalFilters.toDate ? ' - ' : ''}
+                            {approvalFilters.toDate ? moment(approvalFilters.toDate).format('DD MMM YYYY') : ''}
+                          </Typography>
+                          <X size={12} color={colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                    </ScrollView>
+                  )}
+                </>
+              );
+            })()}
+          </>
+        }
+        renderItem={({ item: req }) => (
+          <LeaveApprovalCard
+            req={req}
+            onPressDetails={async () => {
+              await Haptics.selectionAsync();
+              setSelectedRequest(req);
+              setIsDetailsModalVisible(true);
+            }}
+            onApprove={handleApproveRequest}
+            onReject={handleOpenRejectModal}
+          />
+        )}
+        renderSkeleton={() => (
+          <View style={[s.mobileCardWrapper, { height: normalize(100), backgroundColor: colors.white }]} />
+        )}
+      />
+    </Animated.View>
+  );
+
+  const currentTabTitle = useMemo(() => {
+    switch (activeTab) {
+      case 'individual':
+        return 'Leave Overview';
+      case 'my_leaves':
+        return 'My Leaves';
+      case 'balances':
+        return 'Leave Balances';
+      case 'approvals':
+        return 'Leave Approvals';
+      case 'calendar':
+        return 'Leave Calendar';
+      default:
+        return 'Leave';
+    }
+  }, [activeTab]);
 
   return (
     <View style={s.container}>
       <LinearGradient colors={['#F0F8FF', '#E6F0FA', '#FFFFFF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-      <CustomHeader variant={{ type: 'basic', title: 'Leave' }} />
-      
+      <CustomHeader
+        variant={{ type: 'basic', title: currentTabTitle }}
+        rightElement={
+          (activeTab === 'my_leaves' || activeTab === 'individual' || activeTab === 'calendar') ? (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={async () => {
+                await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setIsApplyModalVisible(true);
+              }}
+              style={{
+                borderRadius: normalize(12),
+                overflow: 'hidden',
+                shadowColor: colors.primary,
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.2,
+                shadowRadius: 4,
+                elevation: 3,
+              }}
+            >
+              <LinearGradient
+                colors={colors.loginButtonBgGradient as any}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: normalize(12),
+                  paddingVertical: normalize(7),
+                  gap: normalize(5),
+                }}
+              >
+                <Plus size={15} color={colors.white} />
+                <Typography style={{ color: colors.white, fontSize: normalize(12), fontWeight: '800' }}>
+                  Apply Leave
+                </Typography>
+              </LinearGradient>
+            </TouchableOpacity>
+          ) : undefined
+        }
+      />
       {renderTopTabs()}
+      {activeTab === 'individual'
+        ? renderIndividualDashboard()
+        : activeTab === 'my_leaves'
+        ? renderManagementTab()
+        : activeTab === 'balances'
+        ? renderBalancesTab()
+        : activeTab === 'approvals'
+        ? renderApprovalsTab()
+        : (
+          <LeaveCalendarTab
+            myRequests={requests}
+            adminRequests={adminRequests}
+            typeOptions={typeOptions}
+            employeeOptions={employeeOptions}
+            onSelectRequest={(req) => {
+              setSelectedRequest(req);
+              setIsDetailsModalVisible(true);
+            }}
+            onApplyLeave={() => setIsApplyModalVisible(true)}
+          />
+        )}
 
-      {activeTab === 'individual' ? renderIndividualDashboard() : renderManagementTab()}
+      <ApplyLeaveModal
+        visible={isApplyModalVisible}
+        insets={insets}
+        leaveType={leaveType}
+        setLeaveType={setLeaveType}
+        dayType={dayType}
+        setDayType={setDayType}
+        startDate={startDate}
+        setStartDate={setStartDate}
+        endDate={endDate}
+        setEndDate={setEndDate}
+        reason={reason}
+        setReason={setReason}
+        activeDatePicker={activeDatePicker}
+        setActiveDatePicker={setActiveDatePicker}
+        tempDate={tempDate}
+        setTempDate={setTempDate}
+        isSubmitting={isSubmitting}
+        onClose={() => setIsApplyModalVisible(false)}
+        onSubmit={handleApplyLeave}
+        leaveTypeOptions={applyLeaveTypeOptions}
+        balances={summaryResponse?.balances}
+        disabledDates={appliedLeaveDates}
+      />
 
-      {/* Apply Leave FAB removed from Individual Dashboard Overview as per user request */}
+      <LeaveDetailsModal
+        visible={isDetailsModalVisible}
+        req={selectedRequest}
+        onClose={() => setIsDetailsModalVisible(false)}
+      />
 
-      {renderApplyModal()}
+      <DeleteConfirmationModal
+        visible={isDeleteModalVisible}
+        onClose={() => {
+          setIsDeleteModalVisible(false);
+          setRequestToDelete(null);
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Cancel Leave Request"
+        message="Are you sure you want to cancel this leave request? This action cannot be undone."
+        cancelLabel="Keep Request"
+        confirmLabel="Okay"
+        isLoading={isCancellingLeave}
+      />
+
+      {(() => {
+        const activeFiltersState =
+          activeTab === 'my_leaves' ? myFilters : activeTab === 'balances' ? balanceFilters : approvalFilters;
+        return (
+          <LeaveFilterModal
+            visible={isFilterModalVisible}
+            onClose={() => setIsFilterModalVisible(false)}
+            isApprovals={activeTab === 'approvals'}
+            isBalances={activeTab === 'balances'}
+            initialFilters={{
+              quickDate: (activeFiltersState as any).quickDate || '',
+              fromDate: (activeFiltersState as any).fromDate || '',
+              toDate: (activeFiltersState as any).toDate || '',
+              statusFilter: (activeFiltersState as any).statusFilter || '',
+              leaveTypeIdFilter: activeFiltersState.leaveTypeIdFilter,
+              departmentFilter: (activeFiltersState as any).departmentFilter || '',
+              employeeFilter: (activeFiltersState as any).employeeFilter || '',
+              yearFilter: (activeFiltersState as any).yearFilter || '',
+            }}
+            typeOptions={typeOptions}
+            statusOptions={STATUS_OPTIONS}
+            quickDateOptions={QUICK_DATE_OPTIONS}
+            departmentOptions={departmentOptions}
+            employeeOptions={employeeOptions}
+            onApply={(f) => {
+              if (activeTab === 'my_leaves') {
+                setMyFilters((prev) => ({
+                  ...prev,
+                  quickDate: f.quickDate,
+                  fromDate: f.fromDate,
+                  toDate: f.toDate,
+                  statusFilter: f.statusFilter,
+                  leaveTypeIdFilter: f.leaveTypeIdFilter,
+                }));
+              } else if (activeTab === 'balances') {
+                setBalanceFilters((prev) => ({
+                  ...prev,
+                  yearFilter: f.yearFilter || '',
+                  leaveTypeIdFilter: f.leaveTypeIdFilter,
+                  departmentFilter: f.departmentFilter || '',
+                  employeeFilter: f.employeeFilter || '',
+                }));
+              } else {
+                setApprovalFilters((prev) => ({
+                  ...prev,
+                  quickDate: f.quickDate,
+                  fromDate: f.fromDate,
+                  toDate: f.toDate,
+                  statusFilter: f.statusFilter,
+                  leaveTypeIdFilter: f.leaveTypeIdFilter,
+                  departmentFilter: f.departmentFilter || '',
+                  employeeFilter: f.employeeFilter || '',
+                }));
+              }
+            }}
+            onClear={() => {
+              if (activeTab === 'my_leaves') {
+                setMyFilters((prev) => ({
+                  ...prev,
+                  quickDate: '',
+                  fromDate: '',
+                  toDate: '',
+                  statusFilter: '',
+                  leaveTypeIdFilter: '',
+                }));
+              } else if (activeTab === 'balances') {
+                setBalanceFilters((prev) => ({
+                  ...prev,
+                  yearFilter: '',
+                  leaveTypeIdFilter: '',
+                  departmentFilter: '',
+                  employeeFilter: '',
+                }));
+              } else {
+                setApprovalFilters((prev) => ({
+                  ...prev,
+                  quickDate: '',
+                  fromDate: '',
+                  toDate: '',
+                  statusFilter: '',
+                  leaveTypeIdFilter: '',
+                  departmentFilter: '',
+                  employeeFilter: '',
+                }));
+              }
+            }}
+          />
+        );
+      })()}
+
+      <LeaveRejectionModal
+        visible={rejectModalVisible}
+        onClose={() => {
+          setRejectModalVisible(false);
+          setRejectingRequestId(null);
+        }}
+        onSubmit={handleConfirmReject}
+        isLoading={resolveLeaveMutation.isPending}
+      />
+
+      <LeaveBalanceDetailsModal
+        visible={isBalanceDetailsModalVisible}
+        balance={selectedBalanceForModal}
+        onClose={() => setIsBalanceDetailsModalVisible(false)}
+      />
     </View>
   );
 };
-
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: normalize(16), paddingBottom: normalize(100) },
-  
-  // Top Tabs
-  topTabsWrapper: { borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)', backgroundColor: 'transparent' },
-  topTabsScroll: { paddingHorizontal: normalize(16) },
-  topTab: { paddingVertical: normalize(12), marginRight: normalize(24), borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  topTabActive: { borderBottomColor: colors.primary },
-  topTabText: { fontSize: normalize(14), fontWeight: '600', color: colors.text.muted },
-  topTabTextActive: { color: colors.primary, fontWeight: '700' },
-  topTabsDivider: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 1, backgroundColor: 'rgba(0,0,0,0.05)', zIndex: -1 },
-
-  // Sub Tabs
-  subTabsWrapper: { paddingHorizontal: normalize(16), paddingTop: normalize(16), flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  pageTitle: { fontSize: normalize(20), fontWeight: '800', color: colors.black },
-  pageSubtitle: { fontSize: normalize(13), color: colors.text.muted, marginTop: normalize(4), maxWidth: '80%' },
-  subTabsGroup: { flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: normalize(8), padding: normalize(4) },
-  subTab: { paddingHorizontal: normalize(12), paddingVertical: normalize(6), borderRadius: normalize(6) },
-  subTabActive: { backgroundColor: colors.white, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
-  subTabText: { fontSize: normalize(12), fontWeight: '600', color: colors.text.muted },
-  subTabTextActive: { color: colors.primary },
-
-  // Stat Cards (Attendance Style)
-  statScroll: { paddingHorizontal: normalize(16), paddingBottom: normalize(16), paddingTop: normalize(16), gap: normalize(12) },
-  statCard: { borderRadius: normalize(20), padding: normalize(16), alignItems: 'center', width: normalize(110), borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.5)', overflow: 'hidden' },
-  statIconWrap: { width: normalize(36), height: normalize(36), borderRadius: normalize(18), alignItems: 'center', justifyContent: 'center', marginBottom: normalize(8) },
-  statValue: { fontSize: normalize(20), fontWeight: '800', marginBottom: normalize(2) },
-  statLabel: { fontSize: normalize(11), color: colors.text.muted, fontWeight: '600', textAlign: 'center', lineHeight: normalize(14) },
-
-  sectionHeader: { marginTop: normalize(16), marginBottom: normalize(12) },
-  sectionTitle: { fontSize: normalize(16), fontWeight: '800', color: colors.black },
-
-  // Balance Card
-  balanceCard: { backgroundColor: colors.white, borderRadius: normalize(16), padding: normalize(16), marginBottom: normalize(12), borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)' },
-  bcHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: normalize(16) },
-  bcTitle: { fontSize: normalize(16), fontWeight: '700', color: colors.black, marginBottom: normalize(6) },
-  bcTags: { flexDirection: 'row', gap: normalize(6) },
-  bcTag: { paddingHorizontal: normalize(6), paddingVertical: normalize(2), backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: normalize(4) },
-  bcTagText: { fontSize: normalize(10), fontWeight: '700', color: colors.text.primary },
-  bcAvailable: { fontSize: normalize(24), fontWeight: '800' },
-  bcAvailableSub: { fontSize: normalize(10), fontWeight: '700', color: colors.text.muted, marginTop: normalize(2), letterSpacing: 0.5 },
-  
-  bcMetricsRow: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#F8FAFC', borderRadius: normalize(12), padding: normalize(12) },
-  bcMetric: { alignItems: 'center', flex: 1, paddingVertical: normalize(4) },
-  bcMetricHighlight: { borderRadius: normalize(8) },
-  bcMetricTitle: { fontSize: normalize(9), fontWeight: '700', color: colors.text.muted, marginBottom: normalize(4), letterSpacing: 0.5 },
-  bcMetricVal: { fontSize: normalize(13), fontWeight: '700', color: colors.black },
-
-  // Activity Card
-  recentActivityRow: { marginTop: normalize(16), marginBottom: normalize(12) },
-  activityCard: { backgroundColor: 'rgba(255,255,255,0.5)', borderRadius: normalize(24), padding: normalize(16), borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.8)', marginBottom: normalize(12), overflow: 'hidden' },
-  activityHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  activityIcon: { width: normalize(32), height: normalize(32), borderRadius: normalize(16), backgroundColor: '#F8FAFC', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)' },
-  activityTitle: { fontSize: normalize(14), fontWeight: '700', color: colors.black },
-  statusTag: { paddingHorizontal: normalize(6), paddingVertical: normalize(2), backgroundColor: '#F1F5F9', borderRadius: normalize(10) },
-  statusTagText: { fontSize: normalize(10), fontWeight: '600', color: colors.text.muted },
-  activityMeta: { fontSize: normalize(11), color: colors.text.muted, fontWeight: '500' },
-  activityApplied: { fontSize: normalize(9), fontWeight: '800', color: colors.black, letterSpacing: 0.5 },
-  activityAppliedVal: { fontSize: normalize(11), fontWeight: '700', color: colors.text.primary, marginTop: normalize(2) },
-  
-  activityReason: { overflow: 'hidden' },
-  activityReasonTitle: { fontSize: normalize(10), fontWeight: '700', color: colors.text.muted, letterSpacing: 0.5 },
-  activityReasonText: { fontSize: normalize(13), color: colors.text.primary, lineHeight: normalize(20) },
-
-  // Management Tab
-  mgtHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: normalize(20) },
-  mgtApplyBtn: { overflow: 'hidden', borderRadius: normalize(12) },
-  mgtApplyGrad: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: normalize(16), height: normalize(44), gap: normalize(8) },
-  mgtApplyText: { fontSize: normalize(14), fontWeight: '700', color: colors.white },
-  mgtStatsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: normalize(12), marginBottom: normalize(24) },
-  mgtStatCard: { width: (screenWidth - normalize(44)) / 2, backgroundColor: colors.white, padding: normalize(16), borderRadius: normalize(12), borderWidth: 1 },
-  mgtStatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: normalize(12) },
-  mgtStatTitle: { fontSize: normalize(10), fontWeight: '800', color: colors.primary, letterSpacing: 0.5 },
-  mgtStatVal: { fontSize: normalize(28), fontWeight: '800', color: colors.black },
-  mgtStatSub: { fontSize: normalize(12), color: colors.text.muted, marginTop: normalize(2) },
-
-  filterRow: { flexDirection: 'row', gap: normalize(12), marginBottom: normalize(16) },
-  searchBox: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, paddingHorizontal: normalize(12), height: normalize(44), borderRadius: normalize(12), borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)' },
-  searchInput: { flex: 1, marginLeft: normalize(8), fontSize: normalize(14), color: colors.text.primary },
-  filterBtn: { width: normalize(44), height: normalize(44), backgroundColor: colors.white, borderRadius: normalize(12), borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)', alignItems: 'center', justifyContent: 'center' },
-
-  reqCard: { backgroundColor: colors.white, padding: normalize(16), borderRadius: normalize(16), marginBottom: normalize(12), borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.02, shadowRadius: 4, elevation: 1 },
-  reqCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: normalize(12) },
-  reqType: { fontSize: normalize(15), fontWeight: '700', color: colors.black },
-  reqId: { fontSize: normalize(12), color: colors.text.muted, marginTop: normalize(2) },
-  reqStatusTag: { paddingHorizontal: normalize(8), paddingVertical: normalize(4), borderRadius: normalize(6) },
-  reqStatusText: { fontSize: normalize(11), fontWeight: '700' },
-  reqDetails: { flexDirection: 'row', gap: normalize(24), marginBottom: normalize(12), paddingBottom: normalize(12), borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
-  reqDetailItem: {},
-  reqDetailLabel: { fontSize: normalize(11), color: colors.text.muted, marginBottom: normalize(2) },
-  reqDetailVal: { fontSize: normalize(13), fontWeight: '600', color: colors.text.primary },
-  reqReasonBox: {},
-  reqReasonLabel: { fontSize: normalize(11), color: colors.text.muted, marginBottom: normalize(4) },
-  reqReasonText: { fontSize: normalize(13), color: colors.text.primary, lineHeight: normalize(20) },
-
-  // FAB
-  fabWrap: { position: 'absolute', bottom: normalize(24), left: normalize(24), right: normalize(24) },
-  fab: { overflow: 'hidden', borderRadius: normalize(16), shadowColor: colors.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 8 },
-  fabGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: normalize(16), gap: normalize(8) },
-  fabText: { color: colors.white, fontSize: normalize(16), fontWeight: '700' },
-
-  // Apply Modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: colors.white, borderTopLeftRadius: normalize(24), borderTopRightRadius: normalize(24), maxHeight: '90%' },
-  modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: normalize(24), paddingBottom: normalize(16), borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
-  modalIconBg: { width: normalize(40), height: normalize(40), borderRadius: normalize(12), backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center' },
-  modalTitle: { fontSize: normalize(18), fontWeight: '800', color: colors.black },
-  modalSub: { fontSize: normalize(12), color: colors.text.muted, marginTop: normalize(2) },
-  modalCloseBtn: { padding: normalize(4) },
-  
-  modalScroll: { padding: normalize(24) },
-  inputGroup: { marginBottom: normalize(16) },
-  inputLabel: { fontSize: normalize(11), fontWeight: '700', color: colors.text.muted, letterSpacing: 0.5, marginBottom: normalize(6) },
-  modalInput: { backgroundColor: colors.white, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: normalize(8), paddingHorizontal: normalize(12), height: normalize(44), fontSize: normalize(14), color: colors.text.primary },
-  
-  balanceInfoBox: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: normalize(12), borderWidth: 1, borderColor: '#E2E8F0', borderRadius: normalize(12), backgroundColor: colors.white, marginBottom: normalize(16) },
-  balanceInfoLabel: { fontSize: normalize(13), fontWeight: '600', color: colors.text.primary },
-  balanceInfoSub: { fontSize: normalize(12), color: colors.text.muted },
-  balanceInfoTag: { backgroundColor: '#FEF3C7', paddingHorizontal: normalize(12), paddingVertical: normalize(6), borderRadius: normalize(16) },
-  balanceInfoTagText: { fontSize: normalize(12), fontWeight: '700', color: '#B45309' },
-
-  inputWrapper: { position: 'relative', justifyContent: 'center' },
-  modalInputWithIcon: { backgroundColor: colors.white, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: normalize(8), paddingHorizontal: normalize(12), height: normalize(44), fontSize: normalize(14), color: colors.text.primary, paddingRight: normalize(36) },
-  inputIconRight: { position: 'absolute', right: normalize(12) },
-  modalInputDisabled: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: normalize(8), paddingHorizontal: normalize(12), height: normalize(44), fontSize: normalize(14), color: colors.text.muted },
-  inputIconLeft: { position: 'absolute', left: normalize(12), zIndex: 1 },
-
-  fauxDropdown: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.white, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: normalize(8), paddingHorizontal: normalize(12), height: normalize(44) },
-  fauxDropdownText: { fontSize: normalize(14), color: colors.text.primary },
-  rowInputs: { flexDirection: 'row', gap: normalize(12) },
-  inputHelpText: { fontSize: normalize(11), color: colors.text.light, marginTop: normalize(4) },
-
-  appSummaryBox: { borderWidth: 1, borderColor: '#DBEAFE', backgroundColor: '#EFF6FF', borderRadius: normalize(12), padding: normalize(16), marginBottom: normalize(16) },
-  appSummaryTitle: { fontSize: normalize(10), fontWeight: '800', color: colors.primary, letterSpacing: 0.5 },
-  appSummaryLabel: { fontSize: normalize(11), color: colors.text.muted, marginBottom: normalize(4) },
-  appSummaryValue: { fontSize: normalize(14), fontWeight: '700', color: colors.text.primary },
-
-  dividerContainer: { flexDirection: 'row', alignItems: 'center', marginVertical: normalize(8), marginBottom: normalize(20) },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
-  dividerText: { marginHorizontal: normalize(12), fontSize: normalize(12), color: colors.text.muted, fontWeight: '600' },
-
-  uploadBox: { borderStyle: 'dashed', borderWidth: 2, borderColor: '#E2E8F0', borderRadius: normalize(12), padding: normalize(24), alignItems: 'center', backgroundColor: '#F8FAFC' },
-  uploadTitle: { fontSize: normalize(14), fontWeight: '600', color: colors.primary, marginTop: normalize(12), marginBottom: normalize(4) },
-  uploadSub: { fontSize: normalize(12), color: colors.text.muted },
-
-  modalFooter: { flexDirection: 'row', gap: normalize(12), padding: normalize(24), paddingTop: normalize(16), borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
-  cancelBtn: { flex: 1, height: normalize(48), borderRadius: normalize(12), backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center' },
-  cancelBtnText: { fontSize: normalize(15), fontWeight: '600', color: colors.text.primary },
-  submitBtn: { flex: 1, height: normalize(48), borderRadius: normalize(12), backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  submitBtnText: { fontSize: normalize(15), fontWeight: '600', color: colors.white },
-
-  calendarWrapper: { marginTop: normalize(16), borderRadius: normalize(16), overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)' },
-});

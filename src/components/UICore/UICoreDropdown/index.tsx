@@ -13,8 +13,7 @@ import { FlatList, TouchableOpacity } from 'react-native-gesture-handler';
 import { UICoreTextInput } from '../UICoreTextInput';
 import { UICoreSearch } from '../UICoreSearch';
 import { Typography } from '../../Typography';
-import { ChevronDown, ChevronUp } from 'lucide-react-native';
-import { CheckActive } from '../../../assets/icons/CheckActive';
+import { ChevronDown, ChevronUp, Check } from 'lucide-react-native';
 import { colors } from '../../../theme/color';
 import { normalize } from '../../../utils/responsive';
 
@@ -318,7 +317,7 @@ export const UICoreDropdown: React.FC<UICoreDropdownProps> = ({
                             {item.label}
                           </Typography>
                           {selected && (
-                            <CheckActive size={normalize(20)} color={colors.inputActive} />
+                            <Check size={normalize(20)} color={colors.inputActive || colors.primary} />
                           )}
                         </TouchableOpacity>
                       );
@@ -370,6 +369,7 @@ const styles = StyleSheet.create({
   },
   dropdownTriggerInputContainer: {
     backgroundColor: colors.white,
+    minHeight: normalize(46),
   },
   dropdownMenu: {
     position: 'absolute',

@@ -26,6 +26,7 @@ export interface AttendanceLog {
   overtime: string;         // "0:00:00"
   breakTime: string;        // "1:13:56"
   effectiveHours: string;   // "2:57:02"
+  totalTimeFirstToLast?: string; // "8:15:00"
   location?: string;        // "Office" | "Home"
   issues?: AttendanceIssue[];
   punches?: PunchRecord[];
@@ -234,6 +235,7 @@ const mapServerLog = (log: ServerAttendanceLog): AttendanceLog => {
     overtime:     dm?.totalOvertime || '0:00:00',
     breakTime:    dm?.totalBreakTime || '0:00:00',
     effectiveHours: dm?.effectiveHours || '0:00:00',
+    totalTimeFirstToLast: (dm as any)?.totalTimeFirstToLast || (log as any)?.totalTimeFirstToLast || dm?.effectiveHours || '0:00:00',
     location:     log.status === 'wfh' ? 'Home' : 'Office',
     issues:       deriveIssues(log),
     punches,
@@ -301,17 +303,12 @@ const MOCK_TEAM: TeamAttendanceRecord[] = [
 // ─── API ──────────────────────────────────────────────────────────────────
 export const attendanceApi = {
   getTodayStatus: async (): Promise<AttendanceStatus> => {
-    try {
-      const response = await ApiClient.get<any>(API_ENDPOINTS.HRMS.ATTENDANCE.TODAY);
-      return (response as any).data || response;
-    } catch {
-      return {
-        isCheckedIn: true,
-        checkInTime: '10:06 AM',
-        totalWorkingMinutes: 28,
-        status: 'Checked In',
-      };
-    }
+    return {
+      isCheckedIn: false,
+      checkInTime: '',
+      totalWorkingMinutes: 0,
+      status: 'Checked Out',
+    };
   },
 
   getAttendanceLogs: async (month: string): Promise<AttendanceLog[]> => {
