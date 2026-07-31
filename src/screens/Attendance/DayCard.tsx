@@ -249,9 +249,10 @@ const s = StyleSheet.create({
   dayCard: {
     borderRadius: normalize(20),
     marginBottom: normalize(12),
-    borderWidth: 1.5,
+    borderWidth: 1,
     overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.55)',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
   },
   dayCardHeaderRow: {
     flexDirection: 'row',
@@ -273,7 +274,7 @@ const s = StyleSheet.create({
   dayCardDate: {
     fontSize: normalize(14),
     fontWeight: '800',
-    color: colors.black,
+    color: colors.text.primary,
   },
   statusBadge: {
     flexDirection: 'row',
@@ -316,13 +317,13 @@ const s = StyleSheet.create({
   metricsStrip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.65)',
+    backgroundColor: colors.background,
     borderRadius: normalize(12),
     paddingVertical: normalize(8),
     paddingHorizontal: normalize(10),
     marginTop: normalize(10),
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.04)',
+    borderColor: colors.border,
   },
   metricCol: {
     flex: 1,
@@ -331,7 +332,7 @@ const s = StyleSheet.create({
   metricDivider: {
     width: 1,
     height: normalize(18),
-    backgroundColor: 'rgba(0,0,0,0.06)',
+    backgroundColor: colors.border,
   },
   metricLbl: {
     fontSize: normalize(8),
@@ -343,6 +344,6 @@ const s = StyleSheet.create({
   metricVal: {
     fontSize: normalize(12),
     fontWeight: '800',
-    color: colors.black,
+    color: colors.text.primary,
   },
 });

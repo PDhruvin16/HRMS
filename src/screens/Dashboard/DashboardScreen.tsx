@@ -108,14 +108,14 @@ export const DashboardScreen: React.FC = () => {
     }
 
     return (
-      <BlurView intensity={90} tint="light" style={[styles.gridCard, { padding: normalize(20), borderWidth: 1, borderColor: 'rgba(255,255,255,0.8)', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 16, position: 'relative', overflow: 'hidden' }]}>
+      <BlurView intensity={90} tint="light" style={[styles.gridCard, { padding: normalize(20), borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, position: 'relative', overflow: 'hidden' }]}>
         {content}
       </BlurView>
     );
   };
 
   const StatBox = ({ title, value, subtitle, icon: Icon, iconColor, bgTint }: any) => (
-    <BlurView intensity={90} tint="light" style={[styles.gridCard, { padding: normalize(20), borderColor: 'rgba(255,255,255,0.9)', backgroundColor: 'rgba(255,255,255,0.75)', shadowColor: iconColor, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, position: 'relative', overflow: 'hidden' }]}>
+    <BlurView intensity={90} tint="light" style={[styles.gridCard, { padding: normalize(20), borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, position: 'relative', overflow: 'hidden' }]}>
       {/* Watermark */}
       {Icon && (
         <View style={{ position: 'absolute', right: -normalize(15), bottom: -normalize(15), opacity: 0.05, transform: [{ scale: 1.2 }] }}>
@@ -152,7 +152,7 @@ export const DashboardScreen: React.FC = () => {
   };
 
   const WideCard = ({ title, children }: any) => (
-    <BlurView intensity={90} tint="light" style={[styles.wideCard, { borderWidth: 1, borderColor: 'rgba(255,255,255,0.9)', backgroundColor: 'rgba(255,255,255,0.8)', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.05, shadowRadius: 20 }]}>
+    <BlurView intensity={90} tint="light" style={[styles.wideCard, { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }]}>
       <View style={styles.wideCardHeader}>
         <Typography style={styles.wideCardTitle}>{title}</Typography>
         <ChevronRight size={normalize(18)} color={colors.text.muted} />
