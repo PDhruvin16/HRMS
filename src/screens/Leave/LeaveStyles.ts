@@ -195,14 +195,16 @@ export const s = StyleSheet.create({
 
   // Apply Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: colors.white, borderTopLeftRadius: normalize(24), borderTopRightRadius: normalize(24), maxHeight: '90%' },
+  modalContent: { backgroundColor: colors.white, borderTopLeftRadius: normalize(24), borderTopRightRadius: normalize(24), maxHeight: '85%' },
   modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: normalize(24), paddingBottom: normalize(16), borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
   modalIconBg: { width: normalize(40), height: normalize(40), borderRadius: normalize(12), backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center' },
   modalTitle: { fontSize: normalize(18), fontWeight: '800', color: colors.black },
   modalSub: { fontSize: normalize(12), color: colors.text.muted, marginTop: normalize(2) },
   modalCloseBtn: { padding: normalize(4) },
   
-  modalScroll: { padding: normalize(24) },
+  modalScroll: { flexGrow: 0 },
+
+
   inputGroup: { marginBottom: normalize(16) },
   inputLabel: { fontSize: normalize(11), fontWeight: '700', color: colors.text.muted, letterSpacing: 0.5, marginBottom: normalize(6) },
   modalInput: { backgroundColor: colors.white, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: normalize(8), paddingHorizontal: normalize(12), height: normalize(44), fontSize: normalize(14), color: colors.text.primary },

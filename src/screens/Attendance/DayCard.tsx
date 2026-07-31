@@ -64,15 +64,17 @@ const MicroIssueTag = ({ label }: { label: string }) => {
 };
 
 export const DayCard = ({ log, onPress, index }: { log: any; onPress: () => void; index: number }) => {
-  const hasContent = log.checkIn || log.checkOut || log.workingHours !== '0:00:00' || log.firstPunchIn;
+  const hasContent = Boolean(log.checkIn || log.checkOut || log.workingHours !== '0:00:00' || log.firstPunchIn || log.rawPunchIn);
   const isToday = log.date === getServerMoment().format('YYYY-MM-DD');
-  const isOngoing = isToday && log.rawPunchIn && !log.rawPunchOut;
+  const lastPunch = log.punches && log.punches.length > 0 ? log.punches[log.punches.length - 1] : null;
+  const isLastPunchIn = lastPunch ? lastPunch.type === 'IN' : Boolean(log.rawPunchIn && !log.rawPunchOut);
+  const isOngoing = Boolean(isToday && isLastPunchIn);
 
   const [liveWorked, setLiveWorked] = useState(log.workingHours);
   const [liveOvertime, setLiveOvertime] = useState(log.overtime);
 
   useEffect(() => {
-    if (!isOngoing) {
+    if (!isToday || (!log.rawPunchIn && !log.firstPunchIn)) {
       setLiveWorked(log.workingHours);
       setLiveOvertime(log.overtime);
       return;
@@ -81,14 +83,13 @@ export const DayCard = ({ log, onPress, index }: { log: any; onPress: () => void
     const parseTimeToMs = (timeStr: string): number => {
       if (!timeStr) return 0;
       const parts = timeStr.split(':').map(Number);
-      if (parts.length === 3) {
-        return ((parts[0] * 3600) + (parts[1] * 60) + parts[2]) * 1000;
-      }
+      if (parts.length === 3) return ((parts[0] * 3600) + (parts[1] * 60) + parts[2]) * 1000;
+      if (parts.length === 2) return ((parts[0] * 3600) + (parts[1] * 60)) * 1000;
       return 0;
     };
 
     const formatMsToHms = (ms: number): string => {
-      const totalSecs = Math.floor(ms / 1000);
+      const totalSecs = Math.floor(Math.max(0, ms) / 1000);
       const h = Math.floor(totalSecs / 3600);
       const m = Math.floor((totalSecs % 3600) / 60);
       const s = totalSecs % 60;
@@ -96,26 +97,77 @@ export const DayCard = ({ log, onPress, index }: { log: any; onPress: () => void
     };
 
     const updateTimer = () => {
-      const punchInMoment = moment(log.rawPunchIn);
       const now = getServerMoment();
-      const diffMs = now.diff(punchInMoment);
-      const breakMs = parseTimeToMs(log.breakTime);
-      const targetMs = parseTimeToMs(log.targetHours);
 
-      const workedMs = Math.max(0, diffMs - breakMs);
-      setLiveWorked(formatMsToHms(workedMs));
-
-      if (workedMs > targetMs) {
-        setLiveOvertime(formatMsToHms(workedMs - targetMs));
-      } else {
-        setLiveOvertime('00:00:00');
+      let firstPunchMoment = log.rawPunchIn ? moment(log.rawPunchIn) : null;
+      if (!firstPunchMoment || !firstPunchMoment.isValid()) {
+        if (log.punches && log.punches.length > 0) {
+          firstPunchMoment = moment(log.punches[0].time, ['DD/MM/YYYY, HH:mm:ss', moment.ISO_8601]);
+        } else if (log.firstPunchIn) {
+          firstPunchMoment = moment(`${log.date} ${log.firstPunchIn}`);
+        }
       }
+
+      if (!firstPunchMoment || !firstPunchMoment.isValid()) return;
+
+      const grossElapsedMs = Math.max(0, now.diff(firstPunchMoment));
+
+      const punchesList = log.punches || [];
+      const lastP = punchesList.length > 0 ? punchesList[punchesList.length - 1] : null;
+      const isWorking = lastP ? lastP.type === 'IN' : Boolean(log.rawPunchIn && !log.rawPunchOut);
+
+      let completedWorkedMs = 0;
+      let completedBreakMs = 0;
+
+      if (punchesList.length >= 2) {
+        for (let i = 0; i < punchesList.length - 1; i++) {
+          const pCur = punchesList[i];
+          const pNxt = punchesList[i + 1];
+          const mCur = moment(pCur.time, ['DD/MM/YYYY, HH:mm:ss', moment.ISO_8601]);
+          const mNxt = moment(pNxt.time, ['DD/MM/YYYY, HH:mm:ss', moment.ISO_8601]);
+          if (mCur.isValid() && mNxt.isValid()) {
+            const dur = Math.max(0, mNxt.diff(mCur));
+            if (pCur.type === 'IN' && pNxt.type === 'OUT') {
+              completedWorkedMs += dur;
+            } else if (pCur.type === 'OUT' && pNxt.type === 'IN') {
+              completedBreakMs += dur;
+            }
+          }
+        }
+      }
+
+      if (completedWorkedMs === 0 && log.workingHours) {
+        completedWorkedMs = parseTimeToMs(log.workingHours);
+      }
+      if (completedBreakMs === 0 && log.breakTime) {
+        completedBreakMs = parseTimeToMs(log.breakTime);
+      }
+
+      let effectiveMs = 0;
+      let totalBreakMs = 0;
+
+      if (isWorking) {
+        totalBreakMs = completedBreakMs;
+        effectiveMs = Math.max(0, grossElapsedMs - totalBreakMs);
+      } else {
+        // Currently ON BREAK (punched OUT):
+        // Effective hours PAUSES at completedWorkedMs!
+        // Break time TICKS LIVE = grossElapsedMs - completedWorkedMs!
+        effectiveMs = completedWorkedMs;
+        totalBreakMs = Math.max(0, grossElapsedMs - effectiveMs);
+      }
+
+      const targetMs = parseTimeToMs(log.targetHours) || (8.5 * 3600 * 1000);
+      const overtimeMs = effectiveMs > targetMs ? effectiveMs - targetMs : 0;
+
+      setLiveWorked(formatMsToHms(effectiveMs));
+      setLiveOvertime(formatMsToHms(overtimeMs));
     };
 
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [isOngoing, log.rawPunchIn, log.workingHours, log.overtime, log.breakTime, log.targetHours]);
+  }, [isToday, isLastPunchIn, log.rawPunchIn, log.rawPunchOut, log.firstPunchIn, log.punches, log.workingHours, log.overtime, log.breakTime, log.targetHours]);
 
   const getCardBorderColor = () => {
     const issues = log.issues || [];
@@ -133,7 +185,7 @@ export const DayCard = ({ log, onPress, index }: { log: any; onPress: () => void
   const borderColor = getCardBorderColor();
 
   return (
-    <Animated.View entering={FadeInUp.delay(index * 35).springify()}>
+    <Animated.View entering={FadeInUp.delay((index % 10) * 30).duration(200)}>
       <BlurView intensity={60} tint="light" style={[s.dayCard, { borderColor }]}>
         <TouchableOpacity onPress={onPress} activeOpacity={0.82} style={{ padding: normalize(14) }}>
           {/* Header Row */}

@@ -61,38 +61,50 @@ export const getFieldErrors = (error: ApiError): FieldErrorMap | null => {
 /**
  * Extract readable Api error message
  */
-export const getApiErrorMessage = (error: ApiError): string => {
-  if (!error?.response) {
-    if (error?.message === 'Network Error') {
+export const getApiErrorMessage = (error: unknown): string => {
+  if (!error || typeof error !== 'object') {
+    if (typeof error === 'string') return error;
+    return 'An unexpected error occurred.';
+  }
+
+  const apiErr = error as ApiError;
+
+  if (!apiErr?.response) {
+    if (apiErr?.message === 'Network Error') {
       return 'Network error — Please check your internet connection.';
     }
 
-    if (error?.message?.includes('timeout')) {
+    if (apiErr?.message?.includes?.('timeout')) {
       return 'Request timed out — Please try again.';
     }
 
-    if (error?.code === 'ECONNABORTED') {
+    if (apiErr?.code === 'ECONNABORTED') {
       return 'Connection aborted — Please try again.';
     }
 
-    return error?.message || 'Unable to reach the server.';
+    return apiErr?.message || 'Unable to reach the server.';
   }
 
   // ✔ Response exists → backend returned an error
-  const status = error.response.status;
-  const data = error.response.data;
+  const status = apiErr.response.status;
+  const data = apiErr.response.data as any;
 
   // Handler for extracting readable string messages from various backend error formats
   if (typeof data === 'string') {
-    return data;
+    const dataStr: string = data;
+    if (dataStr.includes('<html') || dataStr.includes('<!DOCTYPE') || dataStr.includes('Cannot GET')) {
+      return `Server error (${status || 500}) — Endpoint unavailable.`;
+    }
+    return dataStr;
   }
+
 
   if (typeof data === 'object' && data !== null) {
     const dataObj = data as Record<string, unknown>;
     
-    if (typeof dataObj.message === 'string') return dataObj.message;
-    if (typeof dataObj.detail === 'string') return dataObj.detail;
-    if (typeof dataObj.error === 'string') return dataObj.error;
+    if (typeof dataObj.message === 'string' && dataObj.message) return dataObj.message;
+    if (typeof dataObj.detail === 'string' && dataObj.detail) return dataObj.detail;
+    if (typeof dataObj.error === 'string' && dataObj.error) return dataObj.error;
     
     if (Array.isArray(dataObj.non_field_errors) && dataObj.non_field_errors.length > 0 && typeof dataObj.non_field_errors[0] === 'string') {
       return dataObj.non_field_errors[0];
@@ -102,10 +114,10 @@ export const getApiErrorMessage = (error: ApiError): string => {
     for (const key of Object.keys(dataObj)) {
       const val = dataObj[key];
       if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'string') {
-        return val[0];
+        return `${key}: ${val[0]}`;
       }
-      if (typeof val === 'string') {
-        return val;
+      if (typeof val === 'string' && val) {
+        return `${key}: ${val}`;
       }
     }
   }
@@ -120,7 +132,7 @@ export const getApiErrorMessage = (error: ApiError): string => {
       case 403:
         return 'You do not have permission to perform this action.';
       case 404:
-        return 'Resource not found.';
+        return 'Resource not found on server.';
       case 408:
         return 'Request timeout — Please try again.';
       case 413:
@@ -135,5 +147,6 @@ export const getApiErrorMessage = (error: ApiError): string => {
     }
   }
 
-  return 'An unexpected error occurred.';
+  return apiErr.message || 'An unexpected error occurred.';
 };
+

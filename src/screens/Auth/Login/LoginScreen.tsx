@@ -14,7 +14,6 @@ import {
   TouchableWithoutFeedback,
   StyleSheet,
   View,
-  ImageBackground,
   Animated,
   Easing,
   Dimensions,
@@ -46,8 +45,6 @@ type AuthStackParamList = {
 };
 
 type LoginScreenProps = StackScreenProps<AuthStackParamList, 'Login'>;
-
-const splashImg = require('../../../../assets/images/Splash1.png');
 
 let isFirstMount = true;
 

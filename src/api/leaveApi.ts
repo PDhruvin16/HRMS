@@ -1,5 +1,6 @@
 import { ApiClient } from '../services/apiClients';
 import { API_ENDPOINTS } from './endpoints';
+import { getApiErrorMessage } from '../utils/errorHandler';
 
 export interface DetailedLeaveBalance {
   code: string;
@@ -261,6 +262,41 @@ export const leaveApi = {
     }
   },
 
+  getPendingLeaveRequests: async (
+    page = 1,
+    limit = 200,
+  ): Promise<LeaveRequest[]> => {
+    try {
+      const endpoint = `${API_ENDPOINTS.HRMS.LEAVE.PENDING}?page=${page}&limit=${limit}`;
+      const response = await ApiClient.get<any>(endpoint);
+      const body = response.data !== undefined && response.status !== undefined ? response.data : response;
+      let data = [];
+      if (Array.isArray(body?.data)) {
+        data = body.data;
+      } else if (Array.isArray(body)) {
+        data = body;
+      }
+      return data.map((item: any) => ({
+        ...item,
+        id: item.id || `pending_${Math.random()}`,
+        leaveTypeName: item.leaveTypeName || item.leave_type || 'Leave',
+        leaveTypeCode: item.leaveTypeCode || item.leave_type_code || '',
+        startDate: item.startDate || item.start_date || '',
+        endDate: item.endDate || item.end_date || '',
+        days: item.days ?? item.total_days ?? 1,
+        dayType: item.dayType || item.day_type || 'full_day',
+        reason: item.reason || '',
+        status: item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1) : 'Pending',
+        appliedAt: item.appliedAt || item.created_at || item.createdAt || '',
+        employeeName: item.employeeName || item.employee_name || 'N/A',
+        empCode: item.empCode || item.employee_role || '',
+      }));
+    } catch (e) {
+      console.error('getPendingLeaveRequests failed:', e);
+      return [];
+    }
+  },
+
   getMyLeaveDates: async (): Promise<string[]> => {
     try {
       const response = await ApiClient.get<any>(API_ENDPOINTS.HRMS.LEAVE.MY_LEAVE_DATES);
@@ -296,7 +332,9 @@ export const leaveApi = {
       const body = response.data !== undefined && response.status !== undefined ? response.data : response;
       return body;
     } catch (e: any) {
-      console.error('applyLeave error:', e?.response?.data || e?.message || e);
+      const msg = getApiErrorMessage(e);
+      console.error('applyLeave error:', msg);
+      if (e && typeof e === 'object') e.message = msg;
       throw e;
     }
   },
@@ -307,7 +345,9 @@ export const leaveApi = {
       const body = response.data !== undefined && response.status !== undefined ? response.data : response;
       return body;
     } catch (e: any) {
-      console.error('cancelLeave error:', e?.response?.data || e?.message || e);
+      const msg = getApiErrorMessage(e);
+      console.error('cancelLeave error:', msg);
+      if (e && typeof e === 'object') e.message = msg;
       throw e;
     }
   },
@@ -316,9 +356,16 @@ export const leaveApi = {
     requestId: string,
     action: 'Approve' | 'Reject',
   ): Promise<{ status: boolean; message: string }> => {
-    const response = await ApiClient.post<any>(API_ENDPOINTS.HRMS.LEAVE.ACTION(requestId), { action });
-    return (response as any).data || response;
+    try {
+      const response = await ApiClient.post<any>(API_ENDPOINTS.HRMS.LEAVE.ACTION(requestId), { action });
+      return (response as any).data || response;
+    } catch (e: any) {
+      const msg = getApiErrorMessage(e);
+      if (e && typeof e === 'object') e.message = msg;
+      throw e;
+    }
   },
+
 
   getAdminLeaveRequests: async (
     page = 1,
@@ -498,7 +545,9 @@ export const leaveApi = {
       const body = response.data !== undefined && response.status !== undefined ? response.data : response;
       return body;
     } catch (e: any) {
-      console.error('resolveLeaveRequest error:', e?.response?.data || e?.message || e);
+      const msg = getApiErrorMessage(e);
+      console.error('resolveLeaveRequest error:', msg);
+      if (e && typeof e === 'object') e.message = msg;
       throw e;
     }
   },

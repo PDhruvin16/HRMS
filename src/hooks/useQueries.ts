@@ -170,7 +170,7 @@ export const useLeaveRequestsInfiniteQuery = (
   const user = useAppSelector((state) => state.auth.user);
   const userId = user?.id || user?.employeeId || '';
   return useInfiniteQuery({
-    queryKey: ['leave', 'requests', type, userId, filters],
+    queryKey: ['leave', 'requests', type, userId, filters, limit],
     queryFn: async ({ pageParam = 1 }) => {
       return leaveApi.getLeaveRequests(type, pageParam as number, limit, filters);
     },
@@ -195,7 +195,7 @@ export const useAdminLeaveRequestsInfiniteQuery = (
   const isEnabled = (options?.enabled !== undefined ? options.enabled : true) && isAuthenticated && !!userId;
 
   return useInfiniteQuery({
-    queryKey: ['leave', 'admin-requests', userId, filters],
+    queryKey: ['leave', 'admin-requests', userId, filters, limit],
     queryFn: async ({ pageParam = 1 }) => {
       return leaveApi.getAdminLeaveRequests(pageParam as number, limit, filters);
     },
@@ -203,6 +203,19 @@ export const useAdminLeaveRequestsInfiniteQuery = (
     getNextPageParam: (lastPage) => {
       return lastPage.hasMore ? lastPage.page + 1 : undefined;
     },
+    enabled: isEnabled,
+  });
+};
+
+export const usePendingLeaveRequestsQuery = (limit = 200, options?: { enabled?: boolean }) => {
+  const user = useAppSelector((state) => state.auth.user);
+  const userId = user?.id || user?.employeeId || '';
+  const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated);
+  const isEnabled = (options?.enabled !== undefined ? options.enabled : true) && isAuthenticated && !!userId;
+
+  return useAppQuery<LeaveRequest[]>({
+    queryKey: ['leave', 'pending-requests', userId, limit],
+    queryFn: () => leaveApi.getPendingLeaveRequests(1, limit),
     enabled: isEnabled,
   });
 };

@@ -36,116 +36,12 @@ import { getStatusColor } from './LeaveTypes';
 
 const { width: SW } = Dimensions.get('window');
 
-const MOCK_CALENDAR_LEAVES = [
-  {
-    id: 'cal-1',
-    employeeName: 'Ashish Rabari',
-    empCode: 'QB048',
-    leaveTypeName: 'Leave Without Pay',
-    leaveTypeCode: 'LWP',
-    startDate: '2026-07-15',
-    endDate: '2026-07-16',
-    days: '2.00',
-    dayType: 'full_day',
-    reason: 'Personal family work in hometown.',
-    status: 'approved',
-  },
-  {
-    id: 'cal-2',
-    employeeName: 'Dhruvin Patel',
-    empCode: 'QB082',
-    leaveTypeName: 'Casual Leave',
-    leaveTypeCode: 'CL',
-    startDate: '2026-07-17',
-    endDate: '2026-07-17',
-    days: '0.50',
-    dayType: 'second_half',
-    reason: 'Travel out of town for personal reasons.',
-    status: 'pending_hr',
-  },
-  {
-    id: 'cal-3',
-    employeeName: 'Ashish Rabari',
-    empCode: 'QB048',
-    leaveTypeName: 'Casual Leave',
-    leaveTypeCode: 'CL',
-    startDate: '2026-07-22',
-    endDate: '2026-07-23',
-    days: '2.00',
-    dayType: 'full_day',
-    reason: 'Attending family wedding ceremony.',
-    status: 'cancelled',
-  },
-  {
-    id: 'cal-4',
-    employeeName: 'Ashish Rabari',
-    empCode: 'QB048',
-    leaveTypeName: 'Casual Leave',
-    leaveTypeCode: 'CL',
-    startDate: '2026-07-24',
-    endDate: '2026-07-24',
-    days: '1.00',
-    dayType: 'full_day',
-    reason: 'Urgent medical checkup for grandmother.',
-    status: 'approved',
-  },
-  {
-    id: 'cal-5',
-    employeeName: 'Priya Sharma',
-    empCode: 'QB012',
-    leaveTypeName: 'Sick Leave',
-    leaveTypeCode: 'SL',
-    startDate: '2026-07-24',
-    endDate: '2026-07-24',
-    days: '1.00',
-    dayType: 'full_day',
-    reason: 'High fever and flu symptom rest.',
-    status: 'rejected',
-  },
-  {
-    id: 'cal-6',
-    employeeName: 'Ashish Rabari',
-    empCode: 'QB048',
-    leaveTypeName: 'Casual Leave',
-    leaveTypeCode: 'CL',
-    startDate: '2026-07-27',
-    endDate: '2026-07-27',
-    days: '1.00',
-    dayType: 'full_day',
-    reason: 'Personal work at bank.',
-    status: 'cancelled',
-  },
-  {
-    id: 'cal-7',
-    employeeName: 'Ashish Rabari',
-    empCode: 'QB048',
-    leaveTypeName: 'Casual Leave',
-    leaveTypeCode: 'CL',
-    startDate: '2026-07-31',
-    endDate: '2026-07-31',
-    days: '1.00',
-    dayType: 'full_day',
-    reason: 'End of month personal tasks.',
-    status: 'rejected',
-  },
-  {
-    id: 'cal-8',
-    employeeName: 'Dhruvin Patel',
-    empCode: 'QB082',
-    leaveTypeName: 'Early Leave',
-    leaveTypeCode: 'EL',
-    startDate: '2026-08-04',
-    endDate: '2026-08-04',
-    days: '1.00',
-    dayType: 'full_day',
-    reason: 'Family emergency medical care.',
-    status: 'cancelled',
-  },
-];
+
 
 interface LeaveCalendarTabProps {
   myRequests?: any[];
   adminRequests?: any[];
+  pendingRequests?: any[];
   typeOptions?: DropdownOption[];
   employeeOptions?: DropdownOption[];
   onSelectRequest: (req: any) => void;
@@ -155,6 +51,7 @@ interface LeaveCalendarTabProps {
 export const LeaveCalendarTab: React.FC<LeaveCalendarTabProps> = ({
   myRequests = [],
   adminRequests = [],
+  pendingRequests = [],
   typeOptions = [],
   employeeOptions = [],
   onSelectRequest,
@@ -200,9 +97,9 @@ export const LeaveCalendarTab: React.FC<LeaveCalendarTabProps> = ({
     return count;
   }, [viewMode, selectedStatus, selectedType, selectedEmployee]);
 
-  // Combined Leaves Data
+  // Combined Leaves Data (100% Dynamic API Data from myRequests + adminRequests + pendingRequests)
   const allLeaves = useMemo(() => {
-    const combined = [...myRequests, ...adminRequests, ...MOCK_CALENDAR_LEAVES];
+    const combined = [...myRequests, ...adminRequests, ...pendingRequests];
     const uniqueMap = new Map();
     combined.forEach((item) => {
       if (item && item.id && !uniqueMap.has(item.id)) {
@@ -210,7 +107,7 @@ export const LeaveCalendarTab: React.FC<LeaveCalendarTabProps> = ({
       }
     });
     return Array.from(uniqueMap.values());
-  }, [myRequests, adminRequests]);
+  }, [myRequests, adminRequests, pendingRequests]);
 
   // Filtered Leaves Data
   const filteredLeaves = useMemo(() => {
@@ -642,7 +539,14 @@ export const LeaveCalendarTab: React.FC<LeaveCalendarTabProps> = ({
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={s.modalScroll} contentContainerStyle={{ paddingBottom: normalize(30) }} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              showsVerticalScrollIndicator={true}
+              nestedScrollEnabled={true}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ padding: normalize(20), paddingBottom: normalize(40) }}
+            >
+
+
               {/* 1. View Mode (My / Team / All) */}
               <View style={s.inputGroup}>
                 <Typography style={s.inputLabel}>VIEW MODE</Typography>

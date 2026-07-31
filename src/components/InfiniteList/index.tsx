@@ -64,6 +64,7 @@ export function InfiniteList<T>({
     return (
       <View style={styles.footerLoader}>
         <ActivityIndicator size="small" color={Colors.primary} />
+        <Typography style={styles.loadingText}>Loading more...</Typography>
       </View>
     );
   };
@@ -121,7 +122,7 @@ export function InfiniteList<T>({
           (item as { id: string }).id?.toString() || index.toString()
         }
         onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.5}
+        onEndReachedThreshold={rest.onEndReachedThreshold ?? 0.8}
         removeClippedSubviews={Platform.OS === 'android'}
         maxToRenderPerBatch={10}
         windowSize={10}
@@ -155,9 +156,16 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   footerLoader: {
-    marginVertical: normalize(20),
+    paddingVertical: normalize(16),
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
+    gap: normalize(8),
+  },
+  loadingText: {
+    fontSize: normalize(12),
+    color: Colors.text.muted,
+    fontWeight: '600',
   },
   footerSpacer: {
     height: normalize(40),

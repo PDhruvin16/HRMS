@@ -13,6 +13,7 @@ import { useAppSelector } from '../hooks/useRedux';
 import colors from '../theme/color';
 import { warmTokenCache } from '../utils/Storage';
 import { ToastProvider } from '../context/ToastContext';
+import SplashScreen from '../screens/Splash/SplashScreen';
 import '../services/api';
 
 // ─── Auth Gate ───────────────────────────────────────────────────────────────
@@ -54,11 +55,7 @@ const RootLayout: React.FC = () => {
         >
           <ReduxProvider store={store}>
             <PersistGate
-              loading={
-                <View style={styles.loaderWrap}>
-                  <ActivityIndicator size="large" color={colors.primary} />
-                </View>
-              }
+              loading={<SplashScreen />}
               persistor={persistor}
             >
               <QueryClientProvider client={queryClient}>

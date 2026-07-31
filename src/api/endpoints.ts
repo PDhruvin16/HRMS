@@ -148,6 +148,7 @@ export const API_ENDPOINTS = {
       BALANCE: '/leave/my-balances',
       REQUESTS: '/leave/my-requests',
       ADMIN_REQUESTS: '/leave/admin/requests',
+      PENDING: '/leave/pending',
       ADMIN_BALANCES: '/leave/admin/balances',
       TYPES_DROPDOWN: '/leave/types/dropdown',
       MY_LEAVE_DATES: '/leave/my-leave-dates',

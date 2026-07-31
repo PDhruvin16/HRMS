@@ -19,7 +19,7 @@
  */
 
 // @ts-nocheck
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   ScrollView,
@@ -42,6 +42,7 @@ import {
 import { normalize } from '../../utils/responsive';
 import colors from '../../theme/color';
 import { Typography } from '../../components/Typography';
+import { getServerMoment } from '../../services/api';
 import {
   AttendanceLog,
   WFHRequest,
@@ -217,7 +218,7 @@ export const WFHCard = ({
   };
 
   return (
-    <Animated.View entering={FadeInUp.delay(index * 50).springify()}>
+    <Animated.View entering={FadeInUp.delay((index % 10) * 30).duration(200)}>
       <BlurView intensity={50} tint="light" style={s.reqCard}>
         <View style={s.reqCardTop}>
           <View style={{ flex: 1 }}>
@@ -273,7 +274,7 @@ export const OTCard = ({
   };
 
   return (
-    <Animated.View entering={FadeInUp.delay(index * 50).springify()}>
+    <Animated.View entering={FadeInUp.delay((index % 10) * 30).duration(200)}>
       <BlurView intensity={50} tint="light" style={s.reqCard}>
         <View style={s.reqCardTop}>
           <View style={{ flex: 1 }}>
@@ -329,7 +330,7 @@ export const WFHApprovalCard = ({
   const avatarColor   = avatarPalette[item.employeeId.charCodeAt(item.employeeId.length - 1) % avatarPalette.length];
 
   return (
-    <Animated.View entering={FadeInUp.delay(index * 50).springify()}>
+    <Animated.View entering={FadeInUp.delay((index % 10) * 30).duration(200)}>
       <BlurView intensity={50} tint="light" style={s.approvalCard}>
         {/* Header: avatar + name + status badge */}
         <View style={s.approvalCardHeader}>
@@ -413,7 +414,7 @@ export const TeamMemberRowCard = ({
     : 'Absent';
 
   return (
-    <Animated.View entering={FadeInUp.delay(index * 50).springify()}>
+    <Animated.View entering={FadeInUp.delay((index % 10) * 30).duration(200)}>
       <BlurView intensity={50} tint="light" style={s.teamRowCard}>
         <View style={s.teamRowInner}>
           {/* Left: avatar + name */}
@@ -615,7 +616,7 @@ export const NewRequestModal = ({
             </View>
           )}
 
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <ScrollView showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled" nestedScrollEnabled={true} overScrollMode="always">
             {type === 'WFH' ? (
               <>
                 <DateField label="From Date" value={from} onPress={() => { setTempDate(from); setActiveDatePicker('start'); }} />
@@ -661,7 +662,131 @@ export const PunchSequenceModal = ({
 }: {
   visible: boolean; log: AttendanceLog | null; onClose: () => void;
 }) => {
+  const isToday       = log?.date === getServerMoment().format('YYYY-MM-DD');
+  const punches       = log?.punches || [];
+  const lastPunch     = punches.length > 0 ? punches[punches.length - 1] : null;
+  const isLastPunchIn = lastPunch ? lastPunch.type === 'IN' : Boolean(log?.rawPunchIn && !log?.rawPunchOut);
+
+  const [liveEffective, setLiveEffective] = useState(log?.effectiveHours || log?.workingHours || '0:00:00');
+  const [liveTotal, setLiveTotal]         = useState(log?.totalTimeFirstToLast || log?.workingHours || '0:00:00');
+  const [liveBreak, setLiveBreak]         = useState(log?.breakTime || '0:00:00');
+  const [liveOvertime, setLiveOvertime]   = useState(log?.overtime || '0:00:00');
+
+  useEffect(() => {
+    if (!log || !isToday || (!log.rawPunchIn && !log.firstPunchIn)) {
+      setLiveEffective(log?.effectiveHours || log?.workingHours || '0:00:00');
+      setLiveTotal(log?.totalTimeFirstToLast || log?.workingHours || '0:00:00');
+      setLiveBreak(log?.breakTime || '0:00:00');
+      setLiveOvertime(log?.overtime || '0:00:00');
+      return;
+    }
+
+    const parseTimeToMs = (timeStr: string): number => {
+      if (!timeStr) return 0;
+      const parts = timeStr.split(':').map(Number);
+      if (parts.length === 3) return ((parts[0] * 3600) + (parts[1] * 60) + parts[2]) * 1000;
+      if (parts.length === 2) return ((parts[0] * 3600) + (parts[1] * 60)) * 1000;
+      return 0;
+    };
+
+    const formatMsToHms = (ms: number): string => {
+      const totalSecs = Math.floor(Math.max(0, ms) / 1000);
+      const h = Math.floor(totalSecs / 3600);
+      const m = Math.floor((totalSecs % 3600) / 60);
+      const s = totalSecs % 60;
+      return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    };
+
+    const updateTimer = () => {
+      const now = getServerMoment();
+
+      let firstPunchMoment = log.rawPunchIn ? moment(log.rawPunchIn) : null;
+      if (!firstPunchMoment || !firstPunchMoment.isValid()) {
+        if (log.punches && log.punches.length > 0) {
+          firstPunchMoment = moment(log.punches[0].time, ['DD/MM/YYYY, HH:mm:ss', moment.ISO_8601]);
+        } else if (log.firstPunchIn) {
+          firstPunchMoment = moment(`${log.date} ${log.firstPunchIn}`);
+        }
+      }
+
+      if (!firstPunchMoment || !firstPunchMoment.isValid()) return;
+
+      const grossElapsedMs = Math.max(0, now.diff(firstPunchMoment));
+
+      const punchesList = log.punches || [];
+      const lastP = punchesList.length > 0 ? punchesList[punchesList.length - 1] : null;
+      const isWorking = lastP ? lastP.type === 'IN' : Boolean(log.rawPunchIn && !log.rawPunchOut);
+
+      let completedWorkedMs = 0;
+      let completedBreakMs = 0;
+
+      if (punchesList.length >= 2) {
+        for (let i = 0; i < punchesList.length - 1; i++) {
+          const pCur = punchesList[i];
+          const pNxt = punchesList[i + 1];
+          const mCur = moment(pCur.time, ['DD/MM/YYYY, HH:mm:ss', moment.ISO_8601]);
+          const mNxt = moment(pNxt.time, ['DD/MM/YYYY, HH:mm:ss', moment.ISO_8601]);
+          if (mCur.isValid() && mNxt.isValid()) {
+            const dur = Math.max(0, mNxt.diff(mCur));
+            if (pCur.type === 'IN' && pNxt.type === 'OUT') {
+              completedWorkedMs += dur;
+            } else if (pCur.type === 'OUT' && pNxt.type === 'IN') {
+              completedBreakMs += dur;
+            }
+          }
+        }
+      }
+
+      if (completedWorkedMs === 0 && log.workingHours) {
+        completedWorkedMs = parseTimeToMs(log.workingHours);
+      }
+      if (completedBreakMs === 0 && log.breakTime) {
+        completedBreakMs = parseTimeToMs(log.breakTime);
+      }
+
+      let effectiveMs = 0;
+      let totalBreakMs = 0;
+
+      if (isWorking) {
+        totalBreakMs = completedBreakMs;
+        effectiveMs = Math.max(0, grossElapsedMs - totalBreakMs);
+      } else {
+        // Currently ON BREAK (punched OUT):
+        // Effective hours PAUSES at completedWorkedMs!
+        // Break time TICKS LIVE = grossElapsedMs - completedWorkedMs!
+        effectiveMs = completedWorkedMs;
+        totalBreakMs = Math.max(0, grossElapsedMs - effectiveMs);
+      }
+
+      const targetMs = parseTimeToMs(log.targetHours) || (8.5 * 3600 * 1000);
+      const overtimeMs = effectiveMs > targetMs ? effectiveMs - targetMs : 0;
+
+      setLiveTotal(formatMsToHms(grossElapsedMs));
+      setLiveBreak(formatMsToHms(totalBreakMs));
+      setLiveEffective(formatMsToHms(effectiveMs));
+      setLiveOvertime(formatMsToHms(overtimeMs));
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [
+    visible,
+    isToday,
+    isLastPunchIn,
+    log?.rawPunchIn,
+    log?.rawPunchOut,
+    log?.firstPunchIn,
+    log?.punches,
+    log?.breakTime,
+    log?.targetHours,
+    log?.effectiveHours,
+    log?.workingHours,
+    log?.overtime,
+  ]);
+
   if (!log) return null;
+
   const statusColor = STATUS_COLOR[log.status] || colors.text.muted;
   const statusBg    = STATUS_BG[log.status]    || 'rgba(156,163,175,0.1)';
 
@@ -706,26 +831,33 @@ export const PunchSequenceModal = ({
                 </View>
                 <View style={s.detailCell}>
                   <Typography style={s.detailLbl}>Break Time</Typography>
-                  <Typography style={s.detailVal}>{log.breakTime || '0:00:00'}</Typography>
+                  <Typography style={s.detailVal}>{liveBreak}</Typography>
                 </View>
               </View>
               <View style={{ flexDirection: 'row', gap: normalize(8) }}>
                 <View style={s.detailCell}>
                   <Typography style={s.detailLbl}>Effective Hours</Typography>
-                  <Typography style={s.detailVal}>{log.effectiveHours || log.workingHours || '--:--:--'}</Typography>
+                  <Typography style={[s.detailVal, { color: colors.error }]}>
+                    {liveEffective}
+                  </Typography>
                 </View>
                 <View style={s.detailCell}>
                   <Typography style={s.detailLbl}>Overtime</Typography>
-                  <Typography style={[s.detailVal, log.overtime !== '0:00:00' && { color: colors.success }]}>
-                    {log.overtime || '0:00:00'}
+                  <Typography
+                    style={[
+                      s.detailVal,
+                      (liveOvertime !== '0:00:00' && liveOvertime !== '00:00:00') && { color: colors.warning },
+                    ]}
+                  >
+                    {liveOvertime}
                   </Typography>
                 </View>
               </View>
               <View style={{ flexDirection: 'row', gap: normalize(8) }}>
                 <View style={s.detailCell}>
                   <Typography style={s.detailLbl}>Total Hours</Typography>
-                  <Typography style={[s.detailVal, { color: colors.primary }]}>
-                    {log.totalTimeFirstToLast || log.workingHours || '--:--:--'}
+                  <Typography style={[s.detailVal, { color: colors.black }]}>
+                    {liveTotal}
                   </Typography>
                 </View>
                 <View style={s.detailCell}>

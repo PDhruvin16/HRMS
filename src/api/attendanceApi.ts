@@ -2,6 +2,7 @@ import { ApiClient } from '../services/apiClients';
 import { API_ENDPOINTS } from './endpoints';
 import moment from 'moment';
 import { getServerMoment } from '../services/api';
+import { getApiErrorMessage } from '../utils/errorHandler';
 
 // ─── Today Status ──────────────────────────────────────────────────────────
 export interface AttendanceStatus {
@@ -222,6 +223,16 @@ const mapServerLog = (log: ServerAttendanceLog): AttendanceLog => {
     time: moment(p.punchTime).format('DD/MM/YYYY, HH:mm:ss'),
   }));
 
+  let computedTotalTime = (dm as any)?.totalTimeFirstToLast || (log as any)?.totalTimeFirstToLast;
+  if (!computedTotalTime && (log.punchIn || dm?.firstPunchIn) && (log.punchOut || dm?.lastPunchOut)) {
+    const startM = moment(log.punchIn || `${log.date} ${dm?.firstPunchIn}`);
+    const endM   = moment(log.punchOut || `${log.date} ${dm?.lastPunchOut}`);
+    if (startM.isValid() && endM.isValid()) {
+      const diffSecs = Math.max(0, endM.diff(startM, 'seconds'));
+      computedTotalTime = secondsToHms(diffSecs);
+    }
+  }
+
   return {
     date:         log.date,
     dayLabel:     m.format('ddd DD MMM'),
@@ -235,7 +246,7 @@ const mapServerLog = (log: ServerAttendanceLog): AttendanceLog => {
     overtime:     dm?.totalOvertime || '0:00:00',
     breakTime:    dm?.totalBreakTime || '0:00:00',
     effectiveHours: dm?.effectiveHours || '0:00:00',
-    totalTimeFirstToLast: (dm as any)?.totalTimeFirstToLast || (log as any)?.totalTimeFirstToLast || dm?.effectiveHours || '0:00:00',
+    totalTimeFirstToLast: computedTotalTime || dm?.effectiveHours || '0:00:00',
     location:     log.status === 'wfh' ? 'Home' : 'Office',
     issues:       deriveIssues(log),
     punches,
@@ -357,8 +368,12 @@ export const attendanceApi = {
         hasMore: serverData.length === limit,
       };
     } catch (error: any) {
+      const msg = getApiErrorMessage(error);
       if (__DEV__) {
-        console.error('[DEBUG] getMyAttendance API call failed:', error?.response?.data ?? error?.message ?? error);
+        console.error('[DEBUG] getMyAttendance API call failed:', msg);
+      }
+      if (error && typeof error === 'object') {
+        error.message = msg;
       }
       throw error;
     }
@@ -400,13 +415,19 @@ export const attendanceApi = {
   },
 
   createWFHRequest: async (payload: Omit<WFHRequest, 'id' | 'status' | 'submittedOn'>): Promise<any> => {
-    const response = await ApiClient.post<any>('/attendance/manual', {
-      entryType: 'wfh',
-      startDate: payload.fromDate,
-      endDate: payload.toDate,
-      reason: payload.reason,
-    });
-    return response;
+    try {
+      const response = await ApiClient.post<any>('/attendance/manual', {
+        entryType: 'wfh',
+        startDate: payload.fromDate,
+        endDate: payload.toDate,
+        reason: payload.reason,
+      });
+      return response;
+    } catch (error: any) {
+      const msg = getApiErrorMessage(error);
+      if (error && typeof error === 'object') error.message = msg;
+      throw error;
+    }
   },
 
   getOvertimeRequests: async (): Promise<OvertimeRequest[]> => {
@@ -428,14 +449,20 @@ export const attendanceApi = {
   },
 
   createOvertimeRequest: async (payload: Omit<OvertimeRequest, 'id' | 'otId' | 'status'>): Promise<any> => {
-    const response = await ApiClient.post<any>('/attendance/manual', {
-      entryType: 'overtime',
-      startDate: payload.date,
-      endDate: payload.date,
-      reason: payload.reason,
-      totalOvertimeHms: payload.hours,
-    });
-    return response;
+    try {
+      const response = await ApiClient.post<any>('/attendance/manual', {
+        entryType: 'overtime',
+        startDate: payload.date,
+        endDate: payload.date,
+        reason: payload.reason,
+        totalOvertimeHms: payload.hours,
+      });
+      return response;
+    } catch (error: any) {
+      const msg = getApiErrorMessage(error);
+      if (error && typeof error === 'object') error.message = msg;
+      throw error;
+    }
   },
 
   getTeamAttendance: async (params: {
@@ -463,9 +490,11 @@ export const attendanceApi = {
         hasMore: serverData.length === limit,
       };
     } catch (error: any) {
+      const msg = getApiErrorMessage(error);
       if (__DEV__) {
-        console.error('[DEBUG] getTeamAttendance API call failed:', error?.response?.data ?? error?.message ?? error);
+        console.error('[DEBUG] getTeamAttendance API call failed:', msg);
       }
+      if (error && typeof error === 'object') error.message = msg;
       throw error;
     }
   },
@@ -504,21 +533,35 @@ export const attendanceApi = {
         hasMore: serverData.length === limit,
       };
     } catch (error: any) {
+      const msg = getApiErrorMessage(error);
       if (__DEV__) {
-        console.error('[DEBUG] getEmployeeAttendance API call failed:', error?.response?.data ?? error?.message ?? error);
+        console.error('[DEBUG] getEmployeeAttendance API call failed:', msg);
       }
+      if (error && typeof error === 'object') error.message = msg;
       throw error;
     }
   },
 
   checkIn: async (data: { latitude?: number; longitude?: number; note?: string }): Promise<AttendanceStatus> => {
-    const response = await ApiClient.post<any>(API_ENDPOINTS.HRMS.ATTENDANCE.CHECKIN, data);
-    return (response as any).data || response;
+    try {
+      const response = await ApiClient.post<any>(API_ENDPOINTS.HRMS.ATTENDANCE.CHECKIN, data);
+      return (response as any).data || response;
+    } catch (error: any) {
+      const msg = getApiErrorMessage(error);
+      if (error && typeof error === 'object') error.message = msg;
+      throw error;
+    }
   },
 
   checkOut: async (data: { note?: string }): Promise<AttendanceStatus> => {
-    const response = await ApiClient.post<any>(API_ENDPOINTS.HRMS.ATTENDANCE.CHECKOUT, data);
-    return (response as any).data || response;
+    try {
+      const response = await ApiClient.post<any>(API_ENDPOINTS.HRMS.ATTENDANCE.CHECKOUT, data);
+      return (response as any).data || response;
+    } catch (error: any) {
+      const msg = getApiErrorMessage(error);
+      if (error && typeof error === 'object') error.message = msg;
+      throw error;
+    }
   },
 
   getWFHApprovals: async (): Promise<WFHApprovalRecord[]> => {
@@ -527,26 +570,45 @@ export const attendanceApi = {
       return response?.data || response || [];
     } catch (error: any) {
       if (__DEV__) {
-        console.error('[DEBUG] getWFHApprovals API call failed:', error?.response?.data ?? error?.message ?? error);
+        console.error('[DEBUG] getWFHApprovals API call failed:', getApiErrorMessage(error));
       }
       return [];
     }
   },
 
   approveWFHRequest: async (requestId: string): Promise<any> => {
-    const response = await ApiClient.put<any>(`/attendance/manual/${requestId}/approve`);
-    return response;
+    try {
+      const response = await ApiClient.put<any>(`/attendance/manual/${requestId}/approve`);
+      return response;
+    } catch (error: any) {
+      const msg = getApiErrorMessage(error);
+      if (error && typeof error === 'object') error.message = msg;
+      throw error;
+    }
   },
 
   rejectWFHRequest: async (requestId: string, payload: { rejectionReason: string }): Promise<any> => {
-    const response = await ApiClient.put<any>(`/attendance/manual/${requestId}/reject`, payload);
-    return response;
+    try {
+      const response = await ApiClient.put<any>(`/attendance/manual/${requestId}/reject`, payload);
+      return response;
+    } catch (error: any) {
+      const msg = getApiErrorMessage(error);
+      if (error && typeof error === 'object') error.message = msg;
+      throw error;
+    }
   },
 
   deleteWFHRequest: async (requestId: string): Promise<any> => {
-    const response = await ApiClient.delete<any>(`/attendance/manual/${requestId}`);
-    return response;
+    try {
+      const response = await ApiClient.delete<any>(`/attendance/manual/${requestId}`);
+      return response;
+    } catch (error: any) {
+      const msg = getApiErrorMessage(error);
+      if (error && typeof error === 'object') error.message = msg;
+      throw error;
+    }
   },
 };
 
 export default attendanceApi;
+

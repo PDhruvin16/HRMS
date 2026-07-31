@@ -18,6 +18,7 @@ import {
   useLeaveSummaryQuery,
   useLeaveRequestsInfiniteQuery,
   useAdminLeaveRequestsInfiniteQuery,
+  usePendingLeaveRequestsQuery,
   useAdminLeaveBalancesInfiniteQuery,
   useLeaveTypesDropdownQuery,
   useDepartmentDropdownQuery,
@@ -28,6 +29,8 @@ import {
   useResolveLeaveMutation,
 } from '../../hooks/useQueries';
 import { InfiniteList } from '../../components/InfiniteList';
+import { useErrorHandle } from '../../hooks/useErrorHandle';
+import { getApiErrorMessage } from '../../utils/errorHandler';
 import DeleteConfirmationModal from '../../components/Modals/DeleteConfirmationModal';
 import colors from '../../theme/color';
 import { Typography } from '../../components/Typography';
@@ -169,6 +172,7 @@ export const LeaveScreen: React.FC = () => {
 
   const canApproveLeaves = hasPermission('leaves', 'approve');
   const canViewLeaveBalances = hasPermission('leave_balances', 'view');
+  const canViewLeaveCalendar = hasPermission('leave_calendar', 'view');
 
   const availableTabs = useMemo(() => {
     const tabs: { key: 'individual' | 'my_leaves' | 'balances' | 'approvals' | 'calendar'; label: string }[] = [];
@@ -180,9 +184,11 @@ export const LeaveScreen: React.FC = () => {
     if (canApproveLeaves) {
       tabs.push({ key: 'approvals', label: 'Leave Approvals' });
     }
-    tabs.push({ key: 'calendar', label: 'Calendar' });
+    if (canViewLeaveCalendar) {
+      tabs.push({ key: 'calendar', label: 'Calendar' });
+    }
     return tabs;
-  }, [canApproveLeaves, canViewLeaveBalances]);
+  }, [canApproveLeaves, canViewLeaveBalances, canViewLeaveCalendar]);
 
   useEffect(() => {
     const validKeys = availableTabs.map((t) => t.key);
@@ -244,6 +250,7 @@ export const LeaveScreen: React.FC = () => {
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [rejectingRequestId, setRejectingRequestId] = useState<string | null>(null);
 
+  const { handleError } = useErrorHandle();
   const resolveLeaveMutation = useResolveLeaveMutation();
 
   const handleApproveRequest = (id: string) => {
@@ -255,7 +262,7 @@ export const LeaveScreen: React.FC = () => {
           Alert.alert('Approved', 'Leave request has been approved successfully!');
         },
         onError: (err: any) => {
-          Alert.alert('Error', err?.response?.data?.message || err?.message || 'Failed to approve request.');
+          handleError(err, 'Failed to approve request.');
         },
       }
     );
@@ -279,11 +286,12 @@ export const LeaveScreen: React.FC = () => {
           Alert.alert('Rejected', 'Leave request has been rejected.');
         },
         onError: (err: any) => {
-          Alert.alert('Error', err?.response?.data?.message || err?.message || 'Failed to reject request.');
+          handleError(err, 'Failed to reject request.');
         },
       }
     );
   };
+
 
   // TanStack Queries
   const { data: summaryResponse, isLoading: isSummaryLoading } = useLeaveSummaryQuery();
@@ -370,7 +378,7 @@ export const LeaveScreen: React.FC = () => {
     isFetchingNextPage,
     refetch,
     isRefetching,
-  } = useLeaveRequestsInfiniteQuery('my', 10, myFilterParams);
+  } = useLeaveRequestsInfiniteQuery('my', dashboardView === 'calendar' ? 50 : 10, myFilterParams);
 
   const requests = useMemo(() => {
     return requestsData?.pages.flatMap((page) => page.data) || [];
@@ -465,12 +473,25 @@ export const LeaveScreen: React.FC = () => {
     refetch: adminRefetch,
     isRefetching: isAdminRefetching,
   } = useAdminLeaveRequestsInfiniteQuery(10, approvalFilterParams, {
-    enabled: hasPermission('leaves', 'approve'),
+    enabled: canApproveLeaves,
   });
 
   const adminRequests = useMemo(() => {
     return adminRequestsData?.pages.flatMap((page) => page.data) || [];
   }, [adminRequestsData]);
+
+  // Dedicated Admin Requests for Calendar Tab (Limit 500)
+  const { data: calendarAdminData } = useAdminLeaveRequestsInfiniteQuery(500, {}, {
+    enabled: activeTab === 'calendar' && canViewLeaveCalendar,
+  });
+
+  const calendarAdminRequests = useMemo(() => {
+    return calendarAdminData?.pages.flatMap((page) => page.data) || [];
+  }, [calendarAdminData]);
+
+  const { data: pendingRequestsData = [] } = usePendingLeaveRequestsQuery(200, {
+    enabled: activeTab === 'calendar' && canViewLeaveCalendar,
+  });
 
   const adminSummary = useMemo(() => {
     const firstPage = adminRequestsData?.pages[0];
@@ -561,9 +582,8 @@ export const LeaveScreen: React.FC = () => {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       refetch();
     } catch (e: any) {
-      console.error('Apply Leave failed:', e);
-      Alert.alert('Error', e?.response?.data?.message || e?.message || 'Failed to submit leave request.');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      handleError(e, 'Failed to submit leave request.');
     }
   };
 
@@ -581,9 +601,8 @@ export const LeaveScreen: React.FC = () => {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       refetch();
     } catch (e: any) {
-      console.error('Cancel Leave failed:', e);
-      Alert.alert('Error', e?.response?.data?.message || e?.message || 'Failed to cancel leave request.');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      handleError(e, 'Failed to cancel leave request.');
     }
   };
 
@@ -693,12 +712,14 @@ export const LeaveScreen: React.FC = () => {
       {dashboardView === 'overview' ? (
         <InfiniteList
           data={requests}
-          isLoading={isReqLoading}
+          isLoading={isReqLoading && !isFetchingNextPage}
           isFetchingNextPage={isFetchingNextPage}
           hasNextPage={!!hasNextPage}
           onLoadMore={() => fetchNextPage()}
           onRefresh={() => refetch()}
           isRefreshing={isRefetching}
+          onEndReachedThreshold={0.8}
+          keyExtractor={(item, index) => (item.id ? `${item.id}_${index}` : `ind_${index}`)}
           contentContainerStyle={s.content}
           ListHeaderComponent={
             <>
@@ -908,12 +929,14 @@ export const LeaveScreen: React.FC = () => {
     <Animated.View style={{ flex: 1 }} entering={FadeInDown.duration(300)}>
       <InfiniteList
         data={requests}
-        isLoading={isReqLoading}
+        isLoading={isReqLoading && !isFetchingNextPage}
         isFetchingNextPage={isFetchingNextPage}
         hasNextPage={!!hasNextPage}
         onLoadMore={() => fetchNextPage()}
         onRefresh={() => refetch()}
         isRefreshing={isRefetching}
+        onEndReachedThreshold={0.8}
+        keyExtractor={(item, index) => (item.id ? `${item.id}_${index}` : `mgt_${index}`)}
         contentContainerStyle={s.content}
         emptyMessage="No leave requests found"
         ListHeaderComponent={
@@ -1071,12 +1094,14 @@ export const LeaveScreen: React.FC = () => {
     <Animated.View entering={FadeInDown.duration(300)} style={{ flex: 1 }}>
       <InfiniteList
         data={adminBalances}
-        isLoading={isAdminBalancesLoading}
+        isLoading={isAdminBalancesLoading && !balancesIsFetchingNextPage}
         isFetchingNextPage={balancesIsFetchingNextPage}
         hasNextPage={!!balancesHasNextPage}
         onLoadMore={() => balancesFetchNextPage()}
         onRefresh={() => balancesRefetch()}
         isRefreshing={balancesIsRefetching}
+        onEndReachedThreshold={0.8}
+        keyExtractor={(item, index) => (item.id ? `${item.id}_${index}` : `bal_${index}`)}
         contentContainerStyle={s.content}
         emptyMessage="No leave balances found"
         ListHeaderComponent={
@@ -1208,12 +1233,14 @@ export const LeaveScreen: React.FC = () => {
     <Animated.View entering={FadeInDown.duration(300)} style={{ flex: 1 }}>
       <InfiniteList
         data={adminRequests}
-        isLoading={isAdminLoading}
+        isLoading={isAdminLoading && !isAdminFetchingNextPage}
         isFetchingNextPage={isAdminFetchingNextPage}
         hasNextPage={!!adminHasNextPage}
         onLoadMore={() => adminFetchNextPage()}
         onRefresh={() => adminRefetch()}
         isRefreshing={isAdminRefetching}
+        onEndReachedThreshold={0.8}
+        keyExtractor={(item, index) => (item.id ? `${item.id}_${index}` : `appr_${index}`)}
         contentContainerStyle={s.content}
         emptyMessage="No leave approval requests found"
         ListHeaderComponent={
@@ -1473,7 +1500,8 @@ export const LeaveScreen: React.FC = () => {
         : (
           <LeaveCalendarTab
             myRequests={requests}
-            adminRequests={adminRequests}
+            adminRequests={calendarAdminRequests}
+            pendingRequests={pendingRequestsData}
             typeOptions={typeOptions}
             employeeOptions={employeeOptions}
             onSelectRequest={(req) => {

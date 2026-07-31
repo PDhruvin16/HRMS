@@ -124,7 +124,7 @@ export const ActivityAccordionCard: React.FC<{ req: any }> = ({ req }) => {
 
 /* ── Balance Card ──────────────────────────────────────────────────────── */
 export const BalanceCard: React.FC<{ bal: DetailedLeaveBalance; index: number }> = ({ bal, index }) => (
-  <Animated.View key={bal.code} entering={FadeInDown.delay(index * 100).springify()}>
+  <Animated.View key={bal.code} entering={FadeInDown.delay((index % 10) * 30).duration(200)}>
     <BlurView intensity={50} tint="light" style={[s.balanceCard, { padding: normalize(20), borderRadius: normalize(24), backgroundColor: 'rgba(255,255,255,0.5)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.8)', marginBottom: normalize(16), overflow: 'hidden' }]}>
       <View style={s.bcHeader}>
         <View>
@@ -461,7 +461,14 @@ export const LeaveDetailsModal: React.FC<{
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={s.modalScroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: normalize(20) }}>
+          <ScrollView
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ padding: normalize(20), paddingBottom: normalize(40) }}
+          >
+
+
             <View style={s.detailsTableBox}>
               <View style={s.detailsTableRow}>
                 <Typography style={s.detailsRowLabel}>LEAVE TYPE</Typography>
@@ -640,7 +647,8 @@ export const ApplyLeaveModal: React.FC<{
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleCloseModal}>
       <View style={s.modalOverlay}>
-        <Animated.View entering={FadeInUp.springify()} style={[s.modalContent, { paddingBottom: insets.bottom || 24, position: 'relative' }]}>
+        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={handleCloseModal} />
+        <Animated.View entering={FadeInUp.springify()} style={[s.modalContent, { maxHeight: '85%', paddingBottom: insets.bottom || 24, position: 'relative' }]}>
           <View style={s.modalHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
               <View style={s.modalIconBg}><CalendarRange size={20} color={colors.primary} /></View>
@@ -654,7 +662,14 @@ export const ApplyLeaveModal: React.FC<{
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={s.modalScroll} contentContainerStyle={{ paddingBottom: normalize(80) }} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ padding: normalize(20), paddingBottom: normalize(80) }}
+          >
+
+
             <View style={s.inputGroup}>
               <Typography style={s.inputLabel}>
                 LEAVE TYPE <Typography style={{ color: colors.error }}>*</Typography>
@@ -1135,7 +1150,14 @@ export const LeaveFilterModal: React.FC<{
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={s.modalScroll} contentContainerStyle={{ paddingBottom: normalize(40) }} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ padding: normalize(20), paddingBottom: normalize(40) }}
+          >
+
+
             {isBalances ? (
               <>
                 {/* Year Dropdown for Leave Balances */}
@@ -1460,7 +1482,14 @@ export const LeaveBalanceDetailsModal: React.FC<{
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={s.modalScroll} contentContainerStyle={{ paddingBottom: normalize(20) }} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ padding: normalize(20), paddingBottom: normalize(40) }}
+          >
+
+
             {/* Employee Info Header */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(12), marginBottom: normalize(16) }}>
               <View

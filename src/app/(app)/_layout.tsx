@@ -32,6 +32,7 @@ import colors from '../../theme/color';
 import { Typography } from '../../components/Typography';
 import { normalize } from '../../utils/responsive';
 import usePermissions from '../../hooks/usePermissions';
+import SplashScreen from '../../screens/Splash/SplashScreen';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -167,9 +168,26 @@ const CustomTabBar = ({ state, navigation, onCenterPress }: any) => {
   );
 };
 
+let isAppFirstMount = true;
+
 export default function AppLayout() {
   usePermissions();
+  const [showSplash, setShowSplash] = useState(isAppFirstMount);
   const [quickActionsVisible, setQuickActionsVisible] = useState(false);
+
+  React.useEffect(() => {
+    if (isAppFirstMount) {
+      const timer = setTimeout(() => {
+        setShowSplash(false);
+        isAppFirstMount = false;
+      }, 1800);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  if (showSplash) {
+    return <SplashScreen />;
+  }
 
   return (
     <>

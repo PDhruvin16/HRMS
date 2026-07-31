@@ -109,9 +109,52 @@ export const EmployeeAttendanceScreen: React.FC = () => {
     return infiniteData?.pages.flatMap((page) => page.logs) ?? [];
   }, [infiniteData]);
 
+  const parseHmsToSeconds = (hmsStr: string): number => {
+    if (!hmsStr) return 0;
+    const parts = hmsStr.split(':').map(Number);
+    if (parts.length === 3) return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+    if (parts.length === 2) return (parts[0] * 3600) + (parts[1] * 60);
+    return 0;
+  };
+
+  const secondsToHmsString = (totalSecs: number): string => {
+    const total = Math.max(0, totalSecs);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
   const summary = useMemo(() => {
-    return infiniteData?.pages[0]?.summary ?? null;
-  }, [infiniteData]);
+    const serverSummary = infiniteData?.pages[0]?.summary;
+    if (!serverSummary) return null;
+    const todayStr = getServerMoment().format('YYYY-MM-DD');
+
+    let totalWorkingSecs  = parseHmsToSeconds(serverSummary?.totalWorking  ?? '00:00:00');
+    let totalOvertimeSecs = parseHmsToSeconds(serverSummary?.totalOvertime ?? '00:00:00');
+    let totalBreakSecs    = parseHmsToSeconds(serverSummary?.totalBreak    ?? '00:00:00');
+
+    // Subtract today's stale server-partial if today user has punched in
+    // (live timer will add accurate real-time values instead)
+    const todayLog = logs.find((l) => l.date === todayStr);
+    const hasPunchedToday = Boolean(todayLog && (todayLog.rawPunchIn || todayLog.firstPunchIn));
+
+    if (hasPunchedToday && todayLog) {
+      totalWorkingSecs  = Math.max(0, totalWorkingSecs  - parseHmsToSeconds(todayLog.workingHours));
+      totalOvertimeSecs = Math.max(0, totalOvertimeSecs - parseHmsToSeconds(todayLog.overtime));
+      totalBreakSecs    = Math.max(0, totalBreakSecs    - parseHmsToSeconds(todayLog.breakTime));
+    }
+
+    const totalIncompleteSecs = parseHmsToSeconds(serverSummary?.totalIncomplete ?? '00:00:00');
+
+    return {
+      totalWorking:    secondsToHmsString(totalWorkingSecs),
+      totalOvertime:   secondsToHmsString(totalOvertimeSecs),
+      totalBreak:      secondsToHmsString(totalBreakSecs),
+      totalIncomplete: secondsToHmsString(totalIncompleteSecs),
+      todayLeavingTime: '',
+    };
+  }, [logs, infiniteData]);
 
   const [liveSummary, setLiveSummary] = useState<any | null>(null);
 
@@ -124,51 +167,87 @@ export const EmployeeAttendanceScreen: React.FC = () => {
   useEffect(() => {
     const todayStr = getServerMoment().format('YYYY-MM-DD');
     const todayLog = logs.find((l) => l.date === todayStr);
-    const isOngoing = todayLog && todayLog.rawPunchIn && !todayLog.rawPunchOut;
+    const hasPunchedToday = Boolean(todayLog && (todayLog.rawPunchIn || todayLog.firstPunchIn));
 
-    if (!isOngoing || !summary) {
+    if (!hasPunchedToday || !summary || !todayLog) {
       setLiveSummary(summary);
       return;
     }
 
-    const parseHmsToSeconds = (hmsStr: string): number => {
-      if (!hmsStr) return 0;
-      const parts = hmsStr.split(':').map(Number);
-      if (parts.length === 3) {
-        return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
-      }
-      return 0;
-    };
-
-    const secondsToHmsString = (totalSecs: number): string => {
-      const h = Math.floor(totalSecs / 3600);
-      const m = Math.floor((totalSecs % 3600) / 60);
-      const s = totalSecs % 60;
-      return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-    };
-
     const updateSummaryTimer = () => {
-      const punchInMoment = moment(todayLog.rawPunchIn);
-      const elapsedSecs = getServerMoment().diff(punchInMoment, 'seconds');
-      const breakSecs = parseHmsToSeconds(todayLog.breakTime);
-      const targetSecs = parseHmsToSeconds(todayLog.targetHours);
+      const firstPunchMoment = todayLog.rawPunchIn
+        ? moment(todayLog.rawPunchIn)
+        : moment(`${todayLog.date} ${todayLog.firstPunchIn}`);
 
-      const workedSecsToday = Math.max(0, elapsedSecs - breakSecs);
-      const overtimeSecsToday = Math.max(0, workedSecsToday - targetSecs);
+      if (!firstPunchMoment.isValid()) {
+        setLiveSummary(summary);
+        return;
+      }
 
-      const totalWorkingSecs = parseHmsToSeconds(summary.totalWorking) + workedSecsToday;
-      const totalOvertimeSecs = parseHmsToSeconds(summary.totalOvertime) + overtimeSecsToday;
+      const grossElapsedSecs = Math.max(0, getServerMoment().diff(firstPunchMoment, 'seconds'));
 
-      const baseIncompleteSecs = parseHmsToSeconds(summary.totalIncomplete);
-      const maxDecrease = Math.min(workedSecsToday, targetSecs);
-      const totalIncompleteSecs = Math.max(0, baseIncompleteSecs - maxDecrease);
+      const punchesList = todayLog.punches || [];
+      const lastP = punchesList.length > 0 ? punchesList[punchesList.length - 1] : null;
+      const isWorking = lastP ? lastP.type === 'IN' : Boolean(todayLog.rawPunchIn && !todayLog.rawPunchOut);
+
+      let completedWorkedSecs = 0;
+      let completedBreakSecs = 0;
+
+      if (punchesList.length >= 2) {
+        for (let i = 0; i < punchesList.length - 1; i++) {
+          const pCur = punchesList[i];
+          const pNxt = punchesList[i + 1];
+          const mCur = moment(pCur.time, ['DD/MM/YYYY, HH:mm:ss', moment.ISO_8601]);
+          const mNxt = moment(pNxt.time, ['DD/MM/YYYY, HH:mm:ss', moment.ISO_8601]);
+          if (mCur.isValid() && mNxt.isValid()) {
+            const dur = Math.max(0, mNxt.diff(mCur, 'seconds'));
+            if (pCur.type === 'IN' && pNxt.type === 'OUT') {
+              completedWorkedSecs += dur;
+            } else if (pCur.type === 'OUT' && pNxt.type === 'IN') {
+              completedBreakSecs += dur;
+            }
+          }
+        }
+      }
+
+      if (completedWorkedSecs === 0 && todayLog.workingHours) {
+        completedWorkedSecs = parseHmsToSeconds(todayLog.workingHours);
+      }
+      if (completedBreakSecs === 0 && todayLog.breakTime) {
+        completedBreakSecs = parseHmsToSeconds(todayLog.breakTime);
+      }
+
+      let todayWorkedSecs = 0;
+      let todayBreakSecs = 0;
+
+      if (isWorking) {
+        todayBreakSecs = completedBreakSecs;
+        todayWorkedSecs = Math.max(0, grossElapsedSecs - todayBreakSecs);
+      } else {
+        todayWorkedSecs = completedWorkedSecs;
+        todayBreakSecs = Math.max(0, grossElapsedSecs - todayWorkedSecs);
+      }
+
+      const targetSecs = parseHmsToSeconds(todayLog.targetHours) || (8.5 * 3600);
+      const otToday = Math.max(0, todayWorkedSecs - targetSecs);
+
+      // Leaving time estimate: punchIn + target + break
+      const targetForLeaving = targetSecs > 0 ? targetSecs : 8.5 * 3600;
+      const leavingTime = moment(firstPunchMoment)
+        .add(targetForLeaving + todayBreakSecs, 'seconds')
+        .format('HH:mm:ss');
+
+      const baseIncompleteSecs  = parseHmsToSeconds(summary.totalIncomplete);
+      const serverWorkedSecs    = parseHmsToSeconds(todayLog.workingHours);
+      const liveWorkedDelta     = isWorking ? Math.max(0, todayWorkedSecs - serverWorkedSecs) : 0;
+      const totalIncompleteSecs = Math.max(0, baseIncompleteSecs - liveWorkedDelta);
 
       setLiveSummary({
-        totalWorking: secondsToHmsString(totalWorkingSecs),
-        totalOvertime: secondsToHmsString(totalOvertimeSecs),
-        totalBreak: summary.totalBreak,
+        totalWorking:    secondsToHmsString(parseHmsToSeconds(summary.totalWorking)  + todayWorkedSecs),
+        totalOvertime:   secondsToHmsString(parseHmsToSeconds(summary.totalOvertime) + otToday),
+        totalBreak:      secondsToHmsString(parseHmsToSeconds(summary.totalBreak)    + todayBreakSecs),
         totalIncomplete: secondsToHmsString(totalIncompleteSecs),
-        todayLeavingTime: '',
+        todayLeavingTime: leavingTime,
       });
     };
 
@@ -182,10 +261,11 @@ export const EmployeeAttendanceScreen: React.FC = () => {
       {liveSummary && (
         <Animated.View entering={FadeInDown.delay(50).springify()}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.statScroll}>
-            <StatCard icon={<TrendingUp size={normalize(18)} color={colors.primary} />}  label="Working"    value={liveSummary.totalWorking}    color={colors.primary} />
-            <StatCard icon={<Zap        size={normalize(18)} color={colors.warning} />}  label="Overtime"   value={liveSummary.totalOvertime}   color={colors.warning} />
-            <StatCard icon={<Coffee     size={normalize(18)} color={colors.emailBlue} />}label="Break"      value={liveSummary.totalBreak}      color={colors.emailBlue} />
+            <StatCard icon={<TrendingUp size={normalize(18)} color={colors.primary} />}  label="Working"    value={liveSummary.totalWorking}     color={colors.primary} />
+            <StatCard icon={<Zap        size={normalize(18)} color={colors.warning} />}  label="Overtime"   value={liveSummary.totalOvertime}    color={colors.warning} />
+            <StatCard icon={<Coffee     size={normalize(18)} color={colors.emailBlue} />}label="Break"      value={liveSummary.totalBreak}       color={colors.emailBlue} />
             <StatCard icon={<Hourglass  size={normalize(18)} color={colors.error} />}    label="Incomplete" value={liveSummary.totalIncomplete}  color={colors.error} />
+            <StatCard icon={<Sun        size={normalize(18)} color={colors.success} />}  label="Leaving"    value={liveSummary.todayLeavingTime} color={colors.success} />
           </ScrollView>
         </Animated.View>
       )}
@@ -287,7 +367,7 @@ export const EmployeeAttendanceScreen: React.FC = () => {
           contentContainerStyle={s.content}
           showsVerticalScrollIndicator={false}
           keyExtractor={(item) => item.date}
-          emptyMessage="No attendance records found."
+          emptyMessage={isError ? "Failed to load attendance records. Please check server or network connection." : "No attendance records found."}
         />
       )}
 

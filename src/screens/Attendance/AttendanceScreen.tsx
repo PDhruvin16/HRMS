@@ -72,6 +72,8 @@ import {
   useRejectWFHMutation,
   useDeleteWFHMutation,
 } from '../../hooks/useQueries';
+import { useErrorHandle } from '../../hooks/useErrorHandle';
+import { getApiErrorMessage } from '../../utils/errorHandler';
 import {
   AttendanceLog,
   WFHRequest,
@@ -128,6 +130,7 @@ const secondsToHmsString = (totalSecs: number): string => {
 export const AttendanceScreen: React.FC = () => {
   const { isAdminOrHR } = useRole();
   const router = useRouter();
+  const { handleError } = useErrorHandle();
 
   /* ── Permissions ─────────────────────────────────────────── */
   const slicePerms   = useSelector((state: RootState) => state.permission?.permissions);
@@ -321,11 +324,12 @@ export const AttendanceScreen: React.FC = () => {
     let totalOvertimeSecs = parseHmsToSeconds(serverSummary?.totalOvertime ?? '00:00:00');
     let totalBreakSecs    = parseHmsToSeconds(serverSummary?.totalBreak    ?? '00:00:00');
 
-    // Subtract today's stale server-partial if ongoing
+    // Subtract today's stale server-partial if today user has punched in
     // (live timer will add accurate real-time values instead)
     const todayLog = logs.find((l) => l.date === todayStr);
-    const isOngoingToday = todayLog && todayLog.rawPunchIn && !todayLog.rawPunchOut;
-    if (isOngoingToday && todayLog) {
+    const hasPunchedToday = Boolean(todayLog && (todayLog.rawPunchIn || todayLog.firstPunchIn));
+
+    if (hasPunchedToday && todayLog) {
       totalWorkingSecs  = Math.max(0, totalWorkingSecs  - parseHmsToSeconds(todayLog.workingHours));
       totalOvertimeSecs = Math.max(0, totalOvertimeSecs - parseHmsToSeconds(todayLog.overtime));
       totalBreakSecs    = Math.max(0, totalBreakSecs    - parseHmsToSeconds(todayLog.breakTime));
@@ -342,42 +346,92 @@ export const AttendanceScreen: React.FC = () => {
     };
   }, [logs, infiniteData]);
 
-  /* ── Live summary (ticks every second while punched-in) ─── */
+  /* ── Live summary (ticks every second when user punched in today) ─── */
   const [liveSummary, setLiveSummary] = useState<AttendanceSummary | null>(null);
 
   useEffect(() => { if (summary) setLiveSummary(summary); }, [summary]);
 
   useEffect(() => {
     const todayLog  = logs.find((l) => l.date === today);
-    const isOngoing = todayLog && todayLog.rawPunchIn && !todayLog.rawPunchOut;
+    const hasPunchedToday = Boolean(todayLog && (todayLog.rawPunchIn || todayLog.firstPunchIn));
 
-    if (!isOngoing || !summary) {
+    if (!hasPunchedToday || !summary || !todayLog) {
       setLiveSummary(summary);
       return;
     }
 
-
     const tick = () => {
-      const elapsedSecs    = getServerMoment().diff(moment(todayLog.rawPunchIn), 'seconds');
-      const todayBreakSecs = parseHmsToSeconds(todayLog.breakTime);
-      const targetSecs     = parseHmsToSeconds(todayLog.targetHours);
-      const workedToday    = Math.max(0, elapsedSecs - todayBreakSecs);
-      const otToday        = Math.max(0, workedToday - targetSecs);
+      const firstPunchMoment = todayLog.rawPunchIn
+        ? moment(todayLog.rawPunchIn)
+        : moment(`${todayLog.date} ${todayLog.firstPunchIn}`);
+
+      if (!firstPunchMoment.isValid()) {
+        setLiveSummary(summary);
+        return;
+      }
+
+      const grossElapsedSecs = Math.max(0, getServerMoment().diff(firstPunchMoment, 'seconds'));
+
+      const punchesList = todayLog.punches || [];
+      const lastP = punchesList.length > 0 ? punchesList[punchesList.length - 1] : null;
+      const isWorking = lastP ? lastP.type === 'IN' : Boolean(todayLog.rawPunchIn && !todayLog.rawPunchOut);
+
+      let completedWorkedSecs = 0;
+      let completedBreakSecs = 0;
+
+      if (punchesList.length >= 2) {
+        for (let i = 0; i < punchesList.length - 1; i++) {
+          const pCur = punchesList[i];
+          const pNxt = punchesList[i + 1];
+          const mCur = moment(pCur.time, ['DD/MM/YYYY, HH:mm:ss', moment.ISO_8601]);
+          const mNxt = moment(pNxt.time, ['DD/MM/YYYY, HH:mm:ss', moment.ISO_8601]);
+          if (mCur.isValid() && mNxt.isValid()) {
+            const dur = Math.max(0, mNxt.diff(mCur, 'seconds'));
+            if (pCur.type === 'IN' && pNxt.type === 'OUT') {
+              completedWorkedSecs += dur;
+            } else if (pCur.type === 'OUT' && pNxt.type === 'IN') {
+              completedBreakSecs += dur;
+            }
+          }
+        }
+      }
+
+      if (completedWorkedSecs === 0 && todayLog.workingHours) {
+        completedWorkedSecs = parseHmsToSeconds(todayLog.workingHours);
+      }
+      if (completedBreakSecs === 0 && todayLog.breakTime) {
+        completedBreakSecs = parseHmsToSeconds(todayLog.breakTime);
+      }
+
+      let todayWorkedSecs = 0;
+      let todayBreakSecs = 0;
+
+      if (isWorking) {
+        todayBreakSecs = completedBreakSecs;
+        todayWorkedSecs = Math.max(0, grossElapsedSecs - todayBreakSecs);
+      } else {
+        // Currently ON BREAK:
+        todayWorkedSecs = completedWorkedSecs;
+        todayBreakSecs = Math.max(0, grossElapsedSecs - todayWorkedSecs);
+      }
+
+      const targetSecs = parseHmsToSeconds(todayLog.targetHours) || (8.5 * 3600);
+      const otToday = Math.max(0, todayWorkedSecs - targetSecs);
 
       // Leaving time estimate: punchIn + target + break
       const targetForLeaving = targetSecs > 0 ? targetSecs : 8.5 * 3600;
-      const leavingTime = moment(todayLog.rawPunchIn)
+      const leavingTime = moment(firstPunchMoment)
         .add(targetForLeaving + todayBreakSecs, 'seconds')
         .format('HH:mm:ss');
 
-      // Incomplete hours count down as user works
+      // Incomplete hours: Base server incomplete minus live worked delta today
       const baseIncompleteSecs = parseHmsToSeconds(summary.totalIncomplete);
-      const maxDecrease        = Math.min(workedToday, targetSecs);
-      const incompleteSecs     = Math.max(0, baseIncompleteSecs - maxDecrease);
+      const serverWorkedSecs   = parseHmsToSeconds(todayLog.workingHours);
+      const liveWorkedDelta    = isWorking ? Math.max(0, todayWorkedSecs - serverWorkedSecs) : 0;
+      const incompleteSecs     = Math.max(0, baseIncompleteSecs - liveWorkedDelta);
 
       setLiveSummary({
-        // summary base already excludes today's stale partial; add live real-time values
-        totalWorking:    secondsToHmsString(parseHmsToSeconds(summary.totalWorking)  + workedToday),
+        totalWorking:    secondsToHmsString(parseHmsToSeconds(summary.totalWorking)  + todayWorkedSecs),
         totalOvertime:   secondsToHmsString(parseHmsToSeconds(summary.totalOvertime) + otToday),
         totalBreak:      secondsToHmsString(parseHmsToSeconds(summary.totalBreak)    + todayBreakSecs),
         totalIncomplete: secondsToHmsString(incompleteSecs),
@@ -435,8 +489,8 @@ export const AttendanceScreen: React.FC = () => {
       else                          await checkIn({ note: 'Punched in' });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
-      console.error(e);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      handleError(e, 'Failed to update punch status.');
     } finally {
       setIsProcessing(false);
     }
@@ -457,13 +511,17 @@ export const AttendanceScreen: React.FC = () => {
                 await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 refetchWFHApprovals();
               },
-              onError:   async (err) => { console.error(err); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); },
+              onError: async (err) => {
+                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                handleError(err, 'Failed to approve WFH request.');
+              },
             });
           },
         },
       ],
     );
   };
+
 
   const handleRejectWFH  = (item: WFHApprovalRecord) => setRejectingItem(item);
 
@@ -532,44 +590,100 @@ export const AttendanceScreen: React.FC = () => {
 
   /** My WFH tab */
   const renderMyWFH = () => (
-    <Animated.View entering={FadeInDown.delay(50).springify()}>
-      <StatusCountStrip data={wfhList} />
-      <SearchBar value={wfhSearch} onChange={setWfhSearch} placeholder="Search by reason…" />
-      {filteredWFH.length === 0
-        ? <EmptyState message="No WFH requests found." />
-        : filteredWFH.map((item, index) => (
-            <WFHCard key={item.id} item={item} index={index} onDelete={setDeletingWFHRequest} />
-          ))}
-    </Animated.View>
+    <InfiniteList
+      data={filteredWFH}
+      isLoading={isRefetchingWFHList && filteredWFH.length === 0}
+      isFetchingNextPage={false}
+      hasNextPage={false}
+      onLoadMore={() => {}}
+      onRefresh={refetchWFHList}
+      isRefreshing={isRefetchingWFHList}
+      onEndReachedThreshold={0.8}
+      ListHeaderComponent={
+        <View style={{ marginBottom: normalize(8) }}>
+          <StatusCountStrip data={wfhList} />
+          <SearchBar value={wfhSearch} onChange={setWfhSearch} placeholder="Search by reason…" />
+        </View>
+      }
+      renderItem={({ item, index }) => (
+        <WFHCard item={item} index={index} onDelete={setDeletingWFHRequest} />
+      )}
+      renderSkeleton={() => (
+        <View style={[s.dayCard, { opacity: 0.5, height: normalize(80), justifyContent: 'center' }]}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      )}
+      contentContainerStyle={s.content}
+      showsVerticalScrollIndicator={false}
+      keyExtractor={(item, index) => (item.id ? `${item.id}_${index}` : `wfh_${index}`)}
+      emptyMessage="No WFH requests found."
+    />
   );
 
   /** My Overtime tab */
   const renderMyOT = () => (
-    <Animated.View entering={FadeInDown.delay(50).springify()}>
-      <StatusCountStrip data={otList} />
-      <SearchBar value={otSearch} onChange={setOtSearch} placeholder="Search by reason…" />
-      {filteredOT.length === 0
-        ? <EmptyState message="No overtime requests found." />
-        : filteredOT.map((item, index) => <OTCard key={item.id} item={item} index={index} />)}
-    </Animated.View>
+    <InfiniteList
+      data={filteredOT}
+      isLoading={isRefetchingOTList && filteredOT.length === 0}
+      isFetchingNextPage={false}
+      hasNextPage={false}
+      onLoadMore={() => {}}
+      onRefresh={refetchOTList}
+      isRefreshing={isRefetchingOTList}
+      onEndReachedThreshold={0.8}
+      ListHeaderComponent={
+        <View style={{ marginBottom: normalize(8) }}>
+          <StatusCountStrip data={otList} />
+          <SearchBar value={otSearch} onChange={setOtSearch} placeholder="Search by reason…" />
+        </View>
+      }
+      renderItem={({ item, index }) => <OTCard item={item} index={index} />}
+      renderSkeleton={() => (
+        <View style={[s.dayCard, { opacity: 0.5, height: normalize(80), justifyContent: 'center' }]}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      )}
+      contentContainerStyle={s.content}
+      showsVerticalScrollIndicator={false}
+      keyExtractor={(item, index) => (item.id ? `${item.id}_${index}` : `ot_${index}`)}
+      emptyMessage="No overtime requests found."
+    />
   );
 
   /** WFH Approvals tab */
   const renderWFHApprovals = () => (
-    <Animated.View entering={FadeInDown.delay(50).springify()}>
-      <SearchBar value={approvalsSearch} onChange={setApprovalsSearch} placeholder="Search by name, emp code, or reason…" />
-      {filteredApprovals.length === 0
-        ? <EmptyState message="No WFH approvals found." />
-        : filteredApprovals.map((item, index) => (
-            <WFHApprovalCard
-              key={item.id}
-              item={item}
-              index={index}
-              onApprove={() => handleApproveWFH(item)}
-              onReject={() => handleRejectWFH(item)}
-            />
-          ))}
-    </Animated.View>
+    <InfiniteList
+      data={filteredApprovals}
+      isLoading={isRefetchingWFH && filteredApprovals.length === 0}
+      isFetchingNextPage={false}
+      hasNextPage={false}
+      onLoadMore={() => {}}
+      onRefresh={refetchWFHApprovals}
+      isRefreshing={isRefetchingWFH}
+      onEndReachedThreshold={0.8}
+      ListHeaderComponent={
+        <View style={{ marginBottom: normalize(8) }}>
+          <SearchBar value={approvalsSearch} onChange={setApprovalsSearch} placeholder="Search by name, emp code, or reason…" />
+        </View>
+      }
+      renderItem={({ item, index }) => (
+        <WFHApprovalCard
+          item={item}
+          index={index}
+          onApprove={() => handleApproveWFH(item)}
+          onReject={() => handleRejectWFH(item)}
+        />
+      )}
+      renderSkeleton={() => (
+        <View style={[s.approvalCard, { opacity: 0.5, height: normalize(100), justifyContent: 'center' }]}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      )}
+      contentContainerStyle={s.content}
+      showsVerticalScrollIndicator={false}
+      keyExtractor={(item, index) => (item.id ? `${item.id}_${index}` : `appr_${index}`)}
+      emptyMessage="No WFH approvals found."
+    />
   );
 
   /** Team tab header — view toggle + stat cards + search */
@@ -740,6 +854,7 @@ export const AttendanceScreen: React.FC = () => {
           onLoadMore={teamFetchNextPage}
           onRefresh={teamRefetch}
           isRefreshing={teamRefetching}
+          onEndReachedThreshold={0.8}
           renderItem={({ item, index }) => {
             const employeeName = `${item.firstName || ''} ${item.lastName || ''}`.trim() || 'Employee';
 
@@ -756,7 +871,6 @@ export const AttendanceScreen: React.FC = () => {
 
             return (
               <TeamMemberRowCard
-                key={item.id || item.employeeId || `${item.empId}-${index}`}
                 item={item}
                 index={index}
                 onPress={() => handleViewEmployee(item.employeeId, employeeName, item.date)}
@@ -773,41 +887,19 @@ export const AttendanceScreen: React.FC = () => {
           ListHeaderComponent={renderTeamHeader()}
           contentContainerStyle={s.content}
           showsVerticalScrollIndicator={false}
-          keyExtractor={(item, index) => item.id || item.employeeId || `${item.empId}-${index}`}
+          keyExtractor={(item, index) =>
+            item.id
+              ? `${item.id}_${index}`
+              : `${item.employeeId || item.empId || 'emp'}_${item.date || index}_${index}`
+          }
           emptyMessage="No records found matching filters."
         />
+      ) : activeTab === 'My WFH' ? (
+        renderMyWFH()
+      ) : activeTab === 'My Overtime' ? (
+        renderMyOT()
       ) : (
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={s.content}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={
-                activeTab === 'WFH Approvals'
-                  ? isRefetchingWFH
-                  : activeTab === 'My WFH'
-                  ? isRefetchingWFHList
-                  : isRefetchingOTList
-              }
-              onRefresh={() => {
-                if (activeTab === 'WFH Approvals') {
-                  refetchWFHApprovals();
-                } else if (activeTab === 'My WFH') {
-                  refetchWFHList();
-                } else if (activeTab === 'My Overtime') {
-                  refetchOTList();
-                }
-              }}
-              colors={[colors.primary]}
-              tintColor={colors.primary}
-            />
-          }
-        >
-          {activeTab === 'My WFH'        && renderMyWFH()}
-          {activeTab === 'My Overtime'   && renderMyOT()}
-          {activeTab === 'WFH Approvals' && renderWFHApprovals()}
-        </ScrollView>
+        renderWFHApprovals()
       )}
 
 
@@ -820,10 +912,15 @@ export const AttendanceScreen: React.FC = () => {
           type={modalType}
           onClose={() => setModalType(null)}
           onSubmit={async (data) => {
-            if (modalType === 'WFH') {
-              await createWFH({ fromDate: data.fromDate, toDate: data.toDate, days: 1, reason: data.reason });
-            } else {
-              await createOT({ date: data.fromDate, hours: data.hours, reason: data.reason });
+            try {
+              if (modalType === 'WFH') {
+                await createWFH({ fromDate: data.fromDate, toDate: data.toDate, days: 1, reason: data.reason });
+              } else {
+                await createOT({ date: data.fromDate, hours: data.hours, reason: data.reason });
+              }
+              setModalType(null);
+            } catch (err) {
+              handleError(err, `Failed to submit ${modalType} request.`);
             }
           }}
         />
@@ -847,7 +944,10 @@ export const AttendanceScreen: React.FC = () => {
           await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           deleteWFH(targetId, {
             onSuccess: async () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
-            onError:   async (err) => { console.error(err); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); },
+            onError: async (err) => {
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              handleError(err, 'Failed to delete WFH request.');
+            },
           });
         }}
       />
@@ -864,10 +964,14 @@ export const AttendanceScreen: React.FC = () => {
               await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               refetchWFHApprovals();
             },
-            onError:   async (err) => { console.error(err); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); },
+            onError: async (err) => {
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              handleError(err, 'Failed to reject WFH request.');
+            },
           });
         }}
       />
+
 
       {/* Date picker modal — triggered from My Attendance date filter */}
       {screenActiveDatePicker && (
