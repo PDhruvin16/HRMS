@@ -6,8 +6,31 @@
 import colors from '../../theme/color';
 
 /* ─── Tab definitions ──────────────────────────────────────────── */
-export const TABS = ['My Attendance', 'My WFH', 'My Overtime', 'Team', 'WFH Approvals'] as const;
+export const TABS = ['My Attendance', 'My WFH', 'My Overtime', 'My Corrections', 'Team', 'WFH Approvals', 'Correction Approvals'] as const;
 export type Tab = (typeof TABS)[number];
+
+/* ─── Correction types ─────────────────────────────────────────── */
+export interface AttendanceCorrectionPunch {
+  id: string;
+  type: 'IN' | 'OUT';
+  time: string;
+  source: string;
+  isAdded?: boolean;
+  isDeleted?: boolean;
+  isDuplicate?: boolean;
+}
+
+export interface AttendanceCorrectionRequest {
+  id: string;
+  employeeId?: string;
+  employeeName?: string;
+  empCode?: string;
+  date: string;
+  punches: AttendanceCorrectionPunch[];
+  reason: string;
+  status: 'Pending' | 'Approved' | 'Rejected';
+  submittedOn: string;
+}
 
 /* ─── Status → color mappings ──────────────────────────────────── */
 export const STATUS_COLOR: Record<string, string> = {

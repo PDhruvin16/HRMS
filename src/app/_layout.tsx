@@ -9,11 +9,13 @@ import { PersistGate } from 'redux-persist/integration/react';
 // import { StatusBar } from 'expo-status-bar';
 import { store, persistor } from '../store';
 import { queryClient } from '../hooks/useQueries';
-import { useAppSelector } from '../hooks/useRedux';
+import { useAppDispatch, useAppSelector } from '../hooks/useRedux';
 import colors from '../theme/color';
 import { warmTokenCache } from '../utils/Storage';
 import { ToastProvider } from '../context/ToastContext';
 import SplashScreen from '../screens/Splash/SplashScreen';
+import AuthEvents, { AUTH_LOGOUT_EVENT } from '../utils/AuthEvents';
+import { logoutAndClear } from '../store/slices/authSlice';
 import '../services/api';
 
 // ─── Auth Gate ───────────────────────────────────────────────────────────────
@@ -21,16 +23,26 @@ import '../services/api';
 const AuthGate: React.FC = () => {
   const router = useRouter();
   const segments = useSegments();
+  const dispatch = useAppDispatch();
   const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
 
   useEffect(() => {
+    const unsubscribe = AuthEvents.on(AUTH_LOGOUT_EVENT, () => {
+      dispatch(logoutAndClear());
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
     const inAuthGroup = segments[0] === '(auth)';
-    const inAppGroup = segments[0] === '(app)';
+    const inAuthOrSplash = inAuthGroup;
 
     if (isAuthenticated && inAuthGroup) {
       // Logged in but on auth screen → go to app
       router.replace('/(app)');
-    } else if (!isAuthenticated && !inAuthGroup) {
+    } else if (!isAuthenticated && !inAuthOrSplash) {
       // Not logged in but trying to access app → go to login
       router.replace('/(auth)/login');
     }

@@ -100,13 +100,19 @@ import {
   WFHCard,
   OTCard,
   WFHApprovalCard,
+  CorrectionCard,
+  CorrectionApprovalCard,
   SearchBar,
   EmptyState,
   NewRequestModal,
+  NewCorrectionModal,
+  CorrectionDetailsModal,
+  CorrectionReviewModal,
   PunchSequenceModal,
   RejectionModal,
   DeleteConfirmationModal,
 } from './AttendanceComponents';
+import { AttendanceCorrectionRequest } from './AttendanceTypes';
 
 /* ── Local time utilities (kept inline to match original behavior) ── */
 const parseHmsToSeconds = (hmsStr: string): number => {
@@ -148,8 +154,14 @@ export const AttendanceScreen: React.FC = () => {
     if (hasPermission('attendance', 'view'))  tabs.push('My Attendance');
     if (hasPermission('my_wfh', 'view'))      tabs.push('My WFH');
     if (hasPermission('my_overtime', 'view')) tabs.push('My Overtime');
+    if (hasPermission('attendance_correction', 'view') || hasPermission('attendance_correction', 'add')) {
+      tabs.push('My Corrections');
+    }
     tabs.push('Team'); // always visible
     if (hasPermission('attendance', 'approve')) tabs.push('WFH Approvals');
+    if (hasPermission('attendance_correction', 'approve')) {
+      tabs.push('Correction Approvals');
+    }
     return tabs;
   }, [permissions]);
 
@@ -168,13 +180,17 @@ export const AttendanceScreen: React.FC = () => {
   const [dateFrom, setDateFrom] = useState(() => moment().startOf('month').format('YYYY-MM-DD'));
   const [dateTo,   setDateTo]   = useState(() => moment().format('YYYY-MM-DD'));
 
-  const [wfhSearch,       setWfhSearch]       = useState('');
-  const [otSearch,        setOtSearch]        = useState('');
-  const [teamSearchText,  setTeamSearchText]  = useState('');
-  const [teamFilterStatus, setTeamFilterStatus] = useState<'All' | 'Present' | 'Absent' | 'WFH'>('All');
-  const [teamViewType,    setTeamViewType]    = useState<'today' | 'monthly'>('today');
+  const [wfhSearch,          setWfhSearch]          = useState('');
+  const [otSearch,           setOtSearch]           = useState('');
+  const [correctionsSearch,  setCorrectionsSearch]  = useState('');
+  const [teamSearchText,     setTeamSearchText]     = useState('');
+  const [teamFilterStatus,   setTeamFilterStatus]   = useState<'All' | 'Present' | 'Absent' | 'WFH'>('All');
+  const [teamViewType,       setTeamViewType]       = useState<'today' | 'monthly'>('today');
 
   const [modalType,              setModalType]              = useState<'WFH' | 'Overtime' | null>(null);
+  const [isCorrectionModalOpen,  setIsCorrectionModalOpen]  = useState(false);
+  const [viewingCorrection,      setViewingCorrection]      = useState<AttendanceCorrectionRequest | null>(null);
+  const [deletingCorrection,     setDeletingCorrection]     = useState<AttendanceCorrectionRequest | null>(null);
   const [selectedLogForModal,    setSelectedLogForModal]    = useState<AttendanceLog | null>(null);
   const [isProcessing,           setIsProcessing]           = useState(false);
   const [screenActiveDatePicker, setScreenActiveDatePicker] = useState<'start' | 'end' | null>(null);
@@ -183,6 +199,109 @@ export const AttendanceScreen: React.FC = () => {
   const [rejectingItem,          setRejectingItem]          = useState<WFHApprovalRecord | null>(null);
   const [deletingWFHRequest,     setDeletingWFHRequest]     = useState<WFHRequest | null>(null);
   const [approvalsSearch,        setApprovalsSearch]        = useState('');
+
+  /* ── Live API Data for My Corrections & Approvals ────────────────── */
+  const [correctionsList, setCorrectionsList] = useState<AttendanceCorrectionRequest[]>([]);
+  const [allCorrectionsList, setAllCorrectionsList] = useState<AttendanceCorrectionRequest[]>([]);
+  const [reviewingCorrection, setReviewingCorrection] = useState<AttendanceCorrectionRequest | null>(null);
+  const [rejectingCorrection, setRejectingCorrection] = useState<AttendanceCorrectionRequest | null>(null);
+  const [approvalSearch, setApprovalSearch] = useState('');
+
+  /* ── Fetch My Corrections API ────────────────────────────── */
+  useEffect(() => {
+    if (activeTab === 'My Corrections') {
+      attendanceApi.getCorrectionRequests()
+        .then((resData) => {
+          console.log('[DEBUG] My Corrections GET API raw response:', JSON.stringify(resData, null, 2));
+          const list = resData?.data || resData || [];
+          if (Array.isArray(list)) {
+            const mapped = list.map((item: any, idx: number) => {
+              const statusStr = item.status
+                ? item.status.charAt(0).toUpperCase() + item.status.slice(1).toLowerCase()
+                : 'Pending';
+
+              const punches = Array.isArray(item.items)
+                ? item.items.map((it: any, i: number) => ({
+                    id: it.id || `p_${i}`,
+                    type: (it.punchType || 'in').toUpperCase() as 'IN' | 'OUT',
+                    time: moment(it.punchTime).isValid()
+                      ? moment(it.punchTime).format('HH:mm:ss')
+                      : (it.punchTime || '09:00:00'),
+                    source: it.actionType ? it.actionType : 'Added',
+                  }))
+                : [];
+
+              return {
+                id: item.id || `corr_${idx}`,
+                employeeId: item.employeeId,
+                employeeName: item.employeeName,
+                empCode: item.empCode,
+                date: item.requestDate || (item.createdAt ? moment(item.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')),
+                submittedOn: item.createdAt ? moment(item.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'),
+                reason: item.reason || 'Attendance correction request',
+                status: (statusStr === 'Pending' || statusStr === 'Approved' || statusStr === 'Rejected' ? statusStr : 'Pending') as any,
+                punches,
+              };
+            });
+            setCorrectionsList(mapped);
+          } else {
+            setCorrectionsList([]);
+          }
+        })
+        .catch((err) => {
+          console.error('[DEBUG] Failed to fetch corrections GET API:', err);
+          setCorrectionsList([]);
+        });
+    }
+  }, [activeTab]);
+
+  /* ── Fetch Correction Approvals API (All Employees) ───────── */
+  useEffect(() => {
+    if (activeTab === 'Correction Approvals') {
+      attendanceApi.getAllCorrectionRequests()
+        .then((resData) => {
+          console.log('[DEBUG] All Corrections GET API raw response:', JSON.stringify(resData, null, 2));
+          const list = resData?.data || resData || [];
+          if (Array.isArray(list)) {
+            const mapped = list.map((item: any, idx: number) => {
+              const statusStr = item.status
+                ? item.status.charAt(0).toUpperCase() + item.status.slice(1).toLowerCase()
+                : 'Pending';
+
+              const punches = Array.isArray(item.items)
+                ? item.items.map((it: any, i: number) => ({
+                    id: it.id || `p_${i}`,
+                    type: (it.punchType || 'in').toUpperCase() as 'IN' | 'OUT',
+                    time: moment(it.punchTime).isValid()
+                      ? moment(it.punchTime).format('HH:mm:ss')
+                      : (it.punchTime || '09:00:00'),
+                    source: it.actionType ? it.actionType : 'Added',
+                  }))
+                : [];
+
+              return {
+                id: item.id || `corr_${idx}`,
+                employeeId: item.employeeId,
+                employeeName: item.employeeName || 'Employee',
+                empCode: item.empCode || '',
+                date: item.requestDate || (item.createdAt ? moment(item.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')),
+                submittedOn: item.createdAt ? moment(item.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'),
+                reason: item.reason || 'Attendance correction request',
+                status: (statusStr === 'Pending' || statusStr === 'Approved' || statusStr === 'Rejected' ? statusStr : 'Pending') as any,
+                punches,
+              };
+            });
+            setAllCorrectionsList(mapped);
+          } else {
+            setAllCorrectionsList([]);
+          }
+        })
+        .catch((err) => {
+          console.error('[DEBUG] Failed to fetch all corrections GET API:', err);
+          setAllCorrectionsList([]);
+        });
+    }
+  }, [activeTab]);
 
   /* ── Queries (conditionally enabled by active tab & permission) ───────── */
   const { data: todayStatus, isLoading: todayLoading } =
@@ -456,6 +575,28 @@ export const AttendanceScreen: React.FC = () => {
     [otList, otSearch],
   );
 
+  const filteredCorrections = useMemo(
+    () =>
+      correctionsList.filter(
+        (c) =>
+          c.reason.toLowerCase().includes(correctionsSearch.toLowerCase()) ||
+          c.date.toLowerCase().includes(correctionsSearch.toLowerCase()),
+      ),
+    [correctionsList, correctionsSearch],
+  );
+
+  const filteredAllCorrections = useMemo(
+    () =>
+      allCorrectionsList.filter(
+        (c) =>
+          (c.employeeName && c.employeeName.toLowerCase().includes(approvalSearch.toLowerCase())) ||
+          (c.empCode && c.empCode.toLowerCase().includes(approvalSearch.toLowerCase())) ||
+          c.reason.toLowerCase().includes(approvalSearch.toLowerCase()) ||
+          c.date.toLowerCase().includes(approvalSearch.toLowerCase()),
+      ),
+    [allCorrectionsList, approvalSearch],
+  );
+
   const filteredApprovals = useMemo(() => wfhApprovals.filter(
     (item) =>
       item.employeeName?.toLowerCase().includes(approvalsSearch.toLowerCase()) ||
@@ -650,6 +791,43 @@ export const AttendanceScreen: React.FC = () => {
     />
   );
 
+  /** My Corrections tab */
+  const renderMyCorrections = () => (
+    <InfiniteList
+      data={filteredCorrections}
+      isLoading={false}
+      isFetchingNextPage={false}
+      hasNextPage={false}
+      onLoadMore={() => {}}
+      onRefresh={() => {}}
+      isRefreshing={false}
+      onEndReachedThreshold={0.8}
+      ListHeaderComponent={
+        <View style={{ marginBottom: normalize(8) }}>
+          <StatusCountStrip data={correctionsList as any} />
+          <SearchBar value={correctionsSearch} onChange={setCorrectionsSearch} placeholder="Search corrections…" />
+        </View>
+      }
+      renderItem={({ item, index }) => (
+        <CorrectionCard
+          item={item}
+          index={index}
+          onDelete={hasPermission('attendance_correction', 'delete') ? setDeletingCorrection : undefined}
+          onPress={(item) => setViewingCorrection(item)}
+        />
+      )}
+      renderSkeleton={() => (
+        <View style={[s.dayCard, { opacity: 0.5, height: normalize(80), justifyContent: 'center' }]}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      )}
+      contentContainerStyle={s.content}
+      showsVerticalScrollIndicator={false}
+      keyExtractor={(item, index) => (item.id ? `${item.id}_${index}` : `corr_${index}`)}
+      emptyMessage="No attendance corrections found."
+    />
+  );
+
   /** WFH Approvals tab */
   const renderWFHApprovals = () => (
     <InfiniteList
@@ -683,6 +861,42 @@ export const AttendanceScreen: React.FC = () => {
       showsVerticalScrollIndicator={false}
       keyExtractor={(item, index) => (item.id ? `${item.id}_${index}` : `appr_${index}`)}
       emptyMessage="No WFH approvals found."
+    />
+  );
+
+  /** Correction Approvals tab */
+  const renderCorrectionApprovals = () => (
+    <InfiniteList
+      data={filteredAllCorrections}
+      isLoading={false}
+      isFetchingNextPage={false}
+      hasNextPage={false}
+      onLoadMore={() => {}}
+      onRefresh={() => {}}
+      isRefreshing={false}
+      onEndReachedThreshold={0.8}
+      ListHeaderComponent={
+        <View style={{ marginBottom: normalize(8) }}>
+          <StatusCountStrip data={allCorrectionsList as any} />
+          <SearchBar value={approvalSearch} onChange={setApprovalSearch} placeholder="Search by employee, date, reason…" />
+        </View>
+      }
+      renderItem={({ item, index }) => (
+        <CorrectionApprovalCard
+          item={item}
+          index={index}
+          onReview={(item) => setReviewingCorrection(item)}
+        />
+      )}
+      renderSkeleton={() => (
+        <View style={[s.dayCard, { opacity: 0.5, height: normalize(80), justifyContent: 'center' }]}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      )}
+      contentContainerStyle={s.content}
+      showsVerticalScrollIndicator={false}
+      keyExtractor={(item, index) => (item.id ? `${item.id}_${index}` : `approval_${index}`)}
+      emptyMessage="No correction approval requests found."
     />
   );
 
@@ -745,6 +959,7 @@ export const AttendanceScreen: React.FC = () => {
       case 'My Attendance': return 'My Attendance';
       case 'My WFH':        return 'My WFH';
       case 'My Overtime':   return 'My Overtime';
+      case 'My Corrections':return 'My Attendance Corrections';
       case 'Team':          return 'Team Attendance';
       case 'WFH Approvals': return 'WFH Approvals';
       default:              return 'Attendance';
@@ -771,12 +986,17 @@ export const AttendanceScreen: React.FC = () => {
               <CalendarRange size={normalize(20)} color={colors.primary} />
             </TouchableOpacity>
           ) : ((activeTab === 'My WFH' && hasPermission('my_wfh', 'add')) ||
-               (activeTab === 'My Overtime' && hasPermission('my_overtime', 'add'))) ? (
+               (activeTab === 'My Overtime' && hasPermission('my_overtime', 'add')) ||
+               (activeTab === 'My Corrections' && hasPermission('attendance_correction', 'add'))) ? (
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={async () => {
                 await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setModalType(activeTab === 'My WFH' ? 'WFH' : 'Overtime');
+                if (activeTab === 'My Corrections') {
+                  setIsCorrectionModalOpen(true);
+                } else {
+                  setModalType(activeTab === 'My WFH' ? 'WFH' : 'Overtime');
+                }
               }}
               style={{
                 borderRadius: normalize(12),
@@ -802,7 +1022,11 @@ export const AttendanceScreen: React.FC = () => {
               >
                 <Plus size={15} color={colors.white} />
                 <Typography style={{ color: colors.white, fontSize: normalize(12), fontWeight: '800' }}>
-                  {activeTab === 'My WFH' ? 'New WFH' : 'New OT'}
+                  {activeTab === 'My WFH'
+                    ? 'New WFH'
+                    : activeTab === 'My Overtime'
+                    ? 'New OT'
+                    : 'New Correction'}
                 </Typography>
               </LinearGradient>
             </TouchableOpacity>
@@ -898,11 +1122,13 @@ export const AttendanceScreen: React.FC = () => {
         renderMyWFH()
       ) : activeTab === 'My Overtime' ? (
         renderMyOT()
+      ) : activeTab === 'My Corrections' ? (
+        renderMyCorrections()
+      ) : activeTab === 'Correction Approvals' ? (
+        renderCorrectionApprovals()
       ) : (
         renderWFHApprovals()
       )}
-
-
 
       {/* ── Modals ───────────────────────────────────────────── */}
 
@@ -926,10 +1152,154 @@ export const AttendanceScreen: React.FC = () => {
         />
       )}
 
+      <NewCorrectionModal
+        visible={isCorrectionModalOpen}
+        onClose={() => setIsCorrectionModalOpen(false)}
+        onSubmit={async (data) => {
+          const requestDate = moment(data.date, ['DD/MM/YYYY', 'YYYY-MM-DD']).format('YYYY-MM-DD');
+
+          const addedItems = data.punches.filter((p) => p.isAdded);
+          const punchesToSend = addedItems.length > 0 ? addedItems : data.punches;
+
+          const itemsPayload = punchesToSend.map((p) => {
+            const dt = moment(`${requestDate} ${p.time}`, [
+              'YYYY-MM-DD hh:mm A',
+              'YYYY-MM-DD HH:mm:ss',
+              'YYYY-MM-DD HH:mm',
+            ]);
+            return {
+              actionType: 'ADD',
+              punchType: p.type.toLowerCase() === 'in' ? 'in' : 'out',
+              punchTime: dt.isValid() ? dt.toISOString() : `${requestDate}T00:00:00.000Z`,
+            };
+          });
+
+          const payload = {
+            requestDate,
+            reason: data.reason,
+            items: itemsPayload,
+          };
+
+          try {
+            setIsProcessing(true);
+            await attendanceApi.submitCorrectionRequest(payload);
+
+            const newRecord: AttendanceCorrectionRequest = {
+              id: `corr_${Date.now()}`,
+              date: requestDate,
+              punches: data.punches,
+              reason: data.reason,
+              status: 'Pending',
+              submittedOn: moment().format('YYYY-MM-DD'),
+            };
+            setCorrectionsList((prev) => [newRecord, ...prev]);
+            setIsCorrectionModalOpen(false);
+            Alert.alert('Success', 'Attendance correction request submitted successfully.');
+          } catch (err: any) {
+            handleError(err, 'Failed to submit attendance correction request.');
+            const newRecord: AttendanceCorrectionRequest = {
+              id: `corr_${Date.now()}`,
+              date: requestDate,
+              punches: data.punches,
+              reason: data.reason,
+              status: 'Pending',
+              submittedOn: moment().format('YYYY-MM-DD'),
+            };
+            setCorrectionsList((prev) => [newRecord, ...prev]);
+            setIsCorrectionModalOpen(false);
+          } finally {
+            setIsProcessing(false);
+          }
+        }}
+      />
+
+      <CorrectionDetailsModal
+        visible={!!viewingCorrection}
+        item={viewingCorrection}
+        onClose={() => setViewingCorrection(null)}
+      />
+
+      <CorrectionReviewModal
+        visible={!!reviewingCorrection}
+        item={reviewingCorrection}
+        onClose={() => setReviewingCorrection(null)}
+        onApprove={(item) => {
+          Alert.alert(
+            'Approve Correction Request',
+            `Are you sure you want to approve attendance correction for ${item.employeeName}?`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Approve',
+                onPress: async () => {
+                  try {
+                    setIsProcessing(true);
+                    await attendanceApi.approveCorrectionRequest(item.id);
+                    setAllCorrectionsList((prev) =>
+                      prev.map((c) => (c.id === item.id ? { ...c, status: 'Approved' } : c))
+                    );
+                    setReviewingCorrection(null);
+                    Alert.alert('Success', 'Attendance correction request approved successfully.');
+                  } catch (err: any) {
+                    handleError(err, 'Failed to approve attendance correction request.');
+                  } finally {
+                    setIsProcessing(false);
+                  }
+                },
+              },
+            ]
+          );
+        }}
+        onReject={(item) => {
+          setReviewingCorrection(null);
+          setTimeout(() => {
+            setRejectingCorrection(item);
+          }, 150);
+        }}
+      />
+
+      <RejectionModal
+        visible={rejectingCorrection !== null}
+        onClose={() => setRejectingCorrection(null)}
+        onSubmit={async (reasonStr) => {
+          if (!rejectingCorrection) return;
+          const targetItem = rejectingCorrection;
+          setRejectingCorrection(null);
+          try {
+            setIsProcessing(true);
+            await attendanceApi.rejectCorrectionRequest(targetItem.id, reasonStr);
+            setAllCorrectionsList((prev) =>
+              prev.map((c) => (c.id === targetItem.id ? { ...c, status: 'Rejected' } : c))
+            );
+            setReviewingCorrection(null);
+            Alert.alert('Success', 'Attendance correction request rejected.');
+          } catch (err: any) {
+            handleError(err, 'Failed to reject attendance correction request.');
+          } finally {
+            setIsProcessing(false);
+          }
+        }}
+      />
+
       <PunchSequenceModal
         visible={!!selectedLogForModal}
         log={selectedLogForModal}
         onClose={() => setSelectedLogForModal(null)}
+      />
+
+      <DeleteConfirmationModal
+        visible={deletingCorrection !== null}
+        onClose={() => setDeletingCorrection(null)}
+        title="Delete Correction Request"
+        message="Are you sure you want to delete this attendance correction request? This action will remove it permanently."
+        onConfirm={async () => {
+          if (!deletingCorrection) return;
+          const targetId = deletingCorrection.id;
+          setDeletingCorrection(null);
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          setCorrectionsList((prev) => prev.filter((c) => c.id !== targetId));
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }}
       />
 
       <DeleteConfirmationModal

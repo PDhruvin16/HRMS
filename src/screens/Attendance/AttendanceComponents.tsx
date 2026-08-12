@@ -19,7 +19,7 @@
  */
 
 // @ts-nocheck
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   ScrollView,
@@ -28,6 +28,7 @@ import {
   Modal,
   Alert,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import moment from 'moment';
 import { Calendar } from 'react-native-calendars';
@@ -37,19 +38,25 @@ import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import {
   AlertCircle, CalendarRange, CheckCircle2,
-  Search, X, Trash2,
+  Search, X, Trash2, Clock, Plus, ChevronDown,
+  Info, AlertTriangle, RotateCcw,
+  XCircle,
 } from 'lucide-react-native';
 import { normalize } from '../../utils/responsive';
 import colors from '../../theme/color';
 import { Typography } from '../../components/Typography';
 import { getServerMoment } from '../../services/api';
-import {
+import attendanceApi, {
   AttendanceLog,
   WFHRequest,
   OvertimeRequest,
   WFHApprovalRecord,
 } from '../../api/attendanceApi';
-import { Tab, STATUS_COLOR, STATUS_BG, ISSUE_COLOR } from './AttendanceTypes';
+import DatePicker from '../../components/Date';
+import {
+  Tab, STATUS_COLOR, STATUS_BG, ISSUE_COLOR,
+  AttendanceCorrectionRequest, AttendanceCorrectionPunch,
+} from './AttendanceTypes';
 import s from './AttendanceStyles';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -982,3 +989,1481 @@ export const DeleteConfirmationModal = ({
     </BlurView>
   </Modal>
 );
+
+/* ═══════════════════════════════════════════════════════════════
+   CORRECTION CARD  (My Corrections tab row)
+═══════════════════════════════════════════════════════════════ */
+
+export const CorrectionCard = ({
+  item, index, onDelete, onPress,
+}: {
+  item: AttendanceCorrectionRequest;
+  index: number;
+  onDelete?: (item: AttendanceCorrectionRequest) => void;
+  onPress?: (item: AttendanceCorrectionRequest) => void;
+}) => {
+  const sc = STATUS_COLOR[item.status] ?? colors.text.muted;
+  const sb = STATUS_BG[item.status]   ?? 'rgba(156, 163, 175, 0.1)';
+
+  const fmt = (d: any, f: string) => {
+    const m = moment(d);
+    return m.isValid() ? m.format(f) : '--';
+  };
+
+  return (
+    <Animated.View entering={FadeInUp.delay((index % 10) * 30).duration(200)}>
+      <TouchableOpacity activeOpacity={0.85} onPress={() => onPress && onPress(item)}>
+        <BlurView intensity={50} tint="light" style={s.reqCard}>
+          <View style={s.reqCardTop}>
+            <View style={{ flex: 1 }}>
+              <Typography style={s.reqTitle}>{fmt(item.date, 'ddd, DD MMM YYYY')}</Typography>
+              <Typography style={s.reqMeta}>
+                {item.punches?.length || 0} punch entries · Submitted: {fmt(item.submittedOn, 'DD MMM YYYY')}
+              </Typography>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(8) }}>
+              {item.status === 'Pending' && onDelete && (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onDelete(item);
+                  }}
+                  style={{
+                    padding: normalize(6),
+                    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                    borderRadius: normalize(8),
+                    borderWidth: 1,
+                    borderColor: 'rgba(239, 68, 68, 0.15)',
+                  }}
+                >
+                  <Trash2 size={normalize(14)} color={colors.error} />
+                </TouchableOpacity>
+              )}
+              <View style={[s.statusBadge, { backgroundColor: sb }]}>
+                <View style={[s.statusDot, { backgroundColor: sc }]} />
+                <Typography style={[s.statusBadgeText, { color: sc }]}>{item.status}</Typography>
+              </View>
+            </View>
+          </View>
+          {item.reason ? (
+            <View style={s.reqReasonBox}>
+              <Typography style={s.reqReasonText} numberOfLines={2}>
+                {item.reason}
+              </Typography>
+            </View>
+          ) : null}
+        </BlurView>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   CORRECTION DETAILS BOTTOM MODAL
+═══════════════════════════════════════════════════════════════ */
+
+export const CorrectionDetailsModal = ({
+  visible,
+  item,
+  onClose,
+}: {
+  visible: boolean;
+  item: AttendanceCorrectionRequest | null;
+  onClose: () => void;
+}) => {
+  const formattedDateHeader = useMemo(() => {
+    if (!item?.date) return '';
+    const m = moment(item.date);
+    return m.isValid() ? m.format('DD MMM YYYY') : item.date;
+  }, [item?.date]);
+
+  const preview = useMemo(() => {
+    const punches = item?.punches || [];
+    if (!punches || punches.length === 0) {
+      return {
+        totalHours: '0h 0m',
+        totalBreaks: '0h 0m',
+        sequenceText: '✓ Valid',
+        sequenceError: null,
+      };
+    }
+
+    const parsePunchSecs = (tStr: string) => {
+      const m = moment(tStr, ['HH:mm:ss', 'hh:mm A', 'HH:mm']);
+      if (!m.isValid()) return 0;
+      return m.hours() * 3600 + m.minutes() * 60 + m.seconds();
+    };
+
+    const sorted = [...punches].sort((a, b) => parsePunchSecs(a.time) - parsePunchSecs(b.time));
+
+    let workSecs = 0;
+    let breakSecs = 0;
+    let seqErr: string | null = null;
+
+    for (let i = 0; i < sorted.length; i++) {
+      const cur = sorted[i];
+      if (i === 0) {
+        if (cur.type === 'OUT') {
+          seqErr = `Sequence error: First punch cannot be Punch Out at ${cur.time}`;
+        }
+      } else {
+        const prev = sorted[i - 1];
+        const dur = Math.max(0, parsePunchSecs(cur.time) - parsePunchSecs(prev.time));
+
+        if (prev.type === 'IN' && cur.type === 'OUT') {
+          workSecs += dur;
+        } else if (prev.type === 'OUT' && cur.type === 'IN') {
+          breakSecs += dur;
+        } else if (prev.type === 'IN' && cur.type === 'IN') {
+          if (!seqErr) seqErr = `Sequence error: Expected Punch Out but got Punch In at ${cur.time}`;
+        } else if (prev.type === 'OUT' && cur.type === 'OUT') {
+          if (!seqErr) seqErr = `Sequence error: Expected Punch In but got Punch Out at ${cur.time}`;
+        }
+      }
+    }
+
+    if (!seqErr && sorted.length > 0 && sorted[sorted.length - 1].type === 'IN') {
+      seqErr = `Sequence missing: Last punch is Punch In with no matching Punch Out`;
+    }
+
+    const hW = Math.floor(workSecs / 3600);
+    const mW = Math.floor((workSecs % 3600) / 60);
+    const hB = Math.floor(breakSecs / 3600);
+    const mB = Math.floor((breakSecs % 3600) / 60);
+
+    return {
+      totalHours: `${hW}h ${mW}m`,
+      totalBreaks: `${hB}h ${mB}m`,
+      sequenceText: !seqErr ? '✓ Valid' : '1 Missing / Issue',
+      sequenceError: seqErr,
+    };
+  }, [item?.punches]);
+
+  if (!item) return null;
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' }}>
+        <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFillObject} />
+        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
+
+        <Animated.View
+          entering={FadeInUp.springify()}
+          style={{
+            backgroundColor: colors.white,
+            borderTopLeftRadius: normalize(24),
+            borderTopRightRadius: normalize(24),
+            padding: normalize(20),
+            height: '82%',
+            maxHeight: '88%',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 10,
+          }}
+        >
+          {/* Drag Handle Bar */}
+          <View style={{ width: normalize(40), height: normalize(4), backgroundColor: '#CBD5E1', borderRadius: 2, alignSelf: 'center', marginBottom: normalize(16) }} />
+
+          {/* Header */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: normalize(6) }}>
+            <Typography style={{ fontSize: normalize(17), fontWeight: '800', color: colors.text.primary, flex: 1 }}>
+              Correction Details — {formattedDateHeader}
+            </Typography>
+            <TouchableOpacity onPress={onClose} style={{ padding: normalize(4), backgroundColor: '#F1F5F9', borderRadius: normalize(16), marginLeft: normalize(10) }}>
+              <X size={18} color={colors.text.secondary} />
+            </TouchableOpacity>
+          </View>
+
+          <Typography style={{ fontSize: normalize(13), color: colors.text.muted, fontWeight: '500', marginBottom: normalize(16) }}>
+            All punch entries for this date with requested modifications.
+          </Typography>
+
+          <View style={{ height: 1, backgroundColor: '#F1F5F9', marginBottom: normalize(16) }} />
+
+          {/* Main Content ScrollView */}
+          <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: normalize(380) }}>
+            {/* Punch Items List */}
+            <View style={{ gap: normalize(10), marginBottom: normalize(16) }}>
+              {(item.punches || []).map((p, idx) => (
+                <View
+                  key={p.id || idx}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justify: 'space-between',
+                    padding: normalize(12),
+                    backgroundColor: p.type === 'IN' ? '#F0FDF4' : '#F8FAFC',
+                    borderRadius: normalize(12),
+                    borderLeftWidth: 4,
+                    borderLeftColor: p.type === 'IN' ? '#10B981' : '#64748B',
+                    borderWidth: 1,
+                    borderColor: p.type === 'IN' ? 'rgba(16, 185, 129, 0.2)' : '#E2E8F0',
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(10) }}>
+                    <View style={{ paddingHorizontal: normalize(8), paddingVertical: normalize(4), borderRadius: normalize(6), backgroundColor: p.type === 'IN' ? '#DCFCE7' : '#E2E8F0' }}>
+                      <Typography style={{ fontSize: normalize(10), fontWeight: '900', color: p.type === 'IN' ? '#15803D' : '#475569' }}>
+                        PUNCH {p.type}
+                      </Typography>
+                    </View>
+                    <Typography style={{ fontSize: normalize(14), fontWeight: '800', fontFamily: 'monospace', color: colors.text.primary }}>
+                      {p.time}
+                    </Typography>
+                    <Typography style={{ fontSize: normalize(12), color: colors.text.muted, fontWeight: '600' }}>
+                      Correction
+                    </Typography>
+                  </View>
+
+                  <View style={{ paddingHorizontal: normalize(8), paddingVertical: normalize(3), borderRadius: normalize(6), backgroundColor: '#DCFCE7' }}>
+                    <Typography style={{ fontSize: normalize(11), fontWeight: '800', color: '#15803D' }}>
+                      Added
+                    </Typography>
+                  </View>
+                </View>
+              ))}
+            </View>
+
+            {/* CORRECTION SUMMARY Box */}
+            <View style={{ backgroundColor: colors.white, borderRadius: normalize(14), borderWidth: 1, borderColor: '#E2E8F0', padding: normalize(14), marginBottom: normalize(16) }}>
+              <Typography style={{ fontSize: normalize(11), fontWeight: '900', color: colors.text.secondary, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: normalize(12) }}>
+                CORRECTION SUMMARY
+              </Typography>
+
+              <View style={{ flexDirection: 'row', gap: normalize(8), marginBottom: preview.sequenceError ? normalize(12) : 0 }}>
+                {/* Total Hours */}
+                <View style={{ flex: 1, backgroundColor: '#F8FAFC', borderRadius: normalize(10), padding: normalize(10), alignItems: 'center', borderWidth: 1, borderColor: '#F1F5F9' }}>
+                  <Typography style={{ fontSize: normalize(10), fontWeight: '800', color: colors.text.muted, textTransform: 'uppercase', marginBottom: 4 }}>
+                    TOTAL HOURS
+                  </Typography>
+                  <Typography style={{ fontSize: normalize(16), fontWeight: '900', color: colors.black }}>
+                    {preview.totalHours}
+                  </Typography>
+                </View>
+
+                {/* Total Breaks */}
+                <View style={{ flex: 1, backgroundColor: '#F8FAFC', borderRadius: normalize(10), padding: normalize(10), alignItems: 'center', borderWidth: 1, borderColor: '#F1F5F9' }}>
+                  <Typography style={{ fontSize: normalize(10), fontWeight: '800', color: colors.text.muted, textTransform: 'uppercase', marginBottom: 4 }}>
+                    TOTAL BREAKS
+                  </Typography>
+                  <Typography style={{ fontSize: normalize(16), fontWeight: '900', color: colors.black }}>
+                    {preview.totalBreaks}
+                  </Typography>
+                </View>
+
+                {/* Sequence */}
+                <View style={{ flex: 1, backgroundColor: '#F8FAFC', borderRadius: normalize(10), padding: normalize(10), alignItems: 'center', borderWidth: 1, borderColor: '#F1F5F9' }}>
+                  <Typography style={{ fontSize: normalize(10), fontWeight: '800', color: colors.text.muted, textTransform: 'uppercase', marginBottom: 4 }}>
+                    SEQUENCE
+                  </Typography>
+                  <Typography style={{ fontSize: normalize(13), fontWeight: '900', color: preview.sequenceError ? '#D97706' : '#10B981' }}>
+                    {preview.sequenceText}
+                  </Typography>
+                </View>
+              </View>
+
+              {/* Sequence Error Warning */}
+              {preview.sequenceError && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(6), paddingTop: normalize(10), borderTopWidth: 1, borderTopColor: '#F1F5F9' }}>
+                  <AlertTriangle size={14} color="#D97706" />
+                  <Typography style={{ flex: 1, fontSize: normalize(12), fontWeight: '700', color: '#D97706' }}>
+                    {preview.sequenceError}
+                  </Typography>
+                </View>
+              )}
+            </View>
+
+            {/* Reason Box */}
+            {item.reason && (
+              <View style={{ backgroundColor: '#F8FAFC', borderRadius: normalize(12), padding: normalize(12), borderWidth: 1, borderColor: '#E2E8F0', marginBottom: normalize(16) }}>
+                <Typography style={{ fontSize: normalize(11), fontWeight: '800', color: colors.text.secondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  REASON
+                </Typography>
+                <Typography style={{ fontSize: normalize(13), color: colors.text.primary, fontWeight: '500', lineHeight: normalize(18) }}>
+                  {item.reason}
+                </Typography>
+              </View>
+            )}
+          </ScrollView>
+
+          {/* Footer Action */}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingTop: normalize(12), borderTopWidth: 1, borderTopColor: '#F1F5F9' }}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={onClose}
+              style={{
+                paddingHorizontal: normalize(24),
+                paddingVertical: normalize(10),
+                borderRadius: normalize(12),
+                borderWidth: 1.5,
+                borderColor: colors.primary,
+                backgroundColor: colors.white,
+              }}
+            >
+              <Typography style={{ fontSize: normalize(14), fontWeight: '800', color: colors.primary }}>
+                Close
+              </Typography>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   CORRECTION APPROVAL CARD (Correction Approvals tab row)
+═══════════════════════════════════════════════════════════════ */
+
+export const CorrectionApprovalCard = ({
+  item,
+  index,
+  onReview,
+}: {
+  item: AttendanceCorrectionRequest;
+  index: number;
+  onReview: (item: AttendanceCorrectionRequest) => void;
+}) => {
+  const isPending = item.status === 'Pending';
+  const sc = STATUS_COLOR[item.status] ?? colors.text.muted;
+  const sb = STATUS_BG[item.status]   ?? 'rgba(156, 163, 175, 0.1)';
+
+  const fmt = (d: any, f: string) => {
+    const m = moment(d);
+    return m.isValid() ? m.format(f) : '--';
+  };
+
+  return (
+    <Animated.View entering={FadeInUp.delay((index % 10) * 30).duration(200)}>
+      <BlurView intensity={50} tint="light" style={s.reqCard}>
+        <View style={s.reqCardTop}>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(8), marginBottom: 2 }}>
+              <Typography style={{ fontSize: normalize(15), fontWeight: '800', color: colors.text.primary }}>
+                {item.employeeName || 'Employee'}
+              </Typography>
+              {item.empCode ? (
+                <View style={{ paddingHorizontal: normalize(6), paddingVertical: normalize(2), backgroundColor: '#F1F5F9', borderRadius: normalize(6) }}>
+                  <Typography style={{ fontSize: normalize(10), fontWeight: '800', color: colors.text.secondary }}>
+                    {item.empCode}
+                  </Typography>
+                </View>
+              ) : null}
+            </View>
+
+            <Typography style={s.reqMeta}>
+              Date: <Typography style={{ fontWeight: '800', color: colors.black }}>{fmt(item.date, 'DD MMM YYYY')}</Typography>
+              {'  ·  '}
+              Submitted: {fmt(item.submittedOn, 'DD MMM YYYY')}
+            </Typography>
+          </View>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(8) }}>
+            <View style={[s.statusBadge, { backgroundColor: sb }]}>
+              <View style={[s.statusDot, { backgroundColor: sc }]} />
+              <Typography style={[s.statusBadgeText, { color: sc }]}>{item.status}</Typography>
+            </View>
+          </View>
+        </View>
+
+        {/* Changes pill & Reason */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: normalize(8) }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(8), flex: 1 }}>
+            <View style={{ paddingHorizontal: normalize(8), paddingVertical: normalize(3), backgroundColor: '#EEF2FF', borderRadius: normalize(6) }}>
+              <Typography style={{ fontSize: normalize(11), fontWeight: '800', color: '#4F46E5' }}>
+                +{item.punches?.length || 1} add
+              </Typography>
+            </View>
+            {item.reason ? (
+              <Typography style={{ fontSize: normalize(12), color: colors.text.secondary, fontWeight: '500', flex: 1 }} numberOfLines={1}>
+                {item.reason}
+              </Typography>
+            ) : null}
+          </View>
+
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => onReview(item)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: normalize(4),
+              paddingHorizontal: normalize(12),
+              paddingVertical: normalize(6),
+              backgroundColor: isPending ? '#3B82F6' : 'transparent',
+              borderRadius: normalize(8),
+              borderWidth: isPending ? 0 : 1,
+              borderColor: '#3B82F6',
+            }}
+          >
+            <Clock size={12} color={isPending ? colors.white : '#3B82F6'} />
+            <Typography style={{ fontSize: normalize(12), fontWeight: '800', color: isPending ? colors.white : '#3B82F6' }}>
+              {isPending ? 'Review' : 'View'}
+            </Typography>
+          </TouchableOpacity>
+        </View>
+      </BlurView>
+    </Animated.View>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   CORRECTION REVIEW MODAL (Admin/HR Review & Approval Popup)
+═══════════════════════════════════════════════════════════════ */
+
+export const CorrectionReviewModal = ({
+  visible,
+  item,
+  onClose,
+  onApprove,
+  onReject,
+}: {
+  visible: boolean;
+  item: AttendanceCorrectionRequest | null;
+  onClose: () => void;
+  onApprove?: (item: AttendanceCorrectionRequest) => void;
+  onReject?: (item: AttendanceCorrectionRequest) => void;
+}) => {
+  const [existingPunches, setExistingPunches] = useState<AttendanceCorrectionPunch[]>([]);
+  const [isLoadingPunches, setIsLoadingPunches] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!visible || !item || !item.employeeId) {
+      setExistingPunches([]);
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingPunches(true);
+
+    attendanceApi.getEmployeePunchesByDate(item.employeeId, item.date)
+      .then((punches) => {
+        if (isMounted) {
+          setExistingPunches(punches || []);
+        }
+      })
+      .catch(() => {
+        if (isMounted) setExistingPunches([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingPunches(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [visible, item]);
+
+  // Merge existing machine punches + correction requested punches without duplication
+  const allPunches = useMemo(() => {
+    if (!item) return [];
+
+    const existingMapped = (existingPunches || []).map((p) => ({
+      ...p,
+      source: p.source || 'machine',
+      isAdded: p.source?.toLowerCase() === 'correction',
+      isDeleted: Boolean(p.isDeleted),
+    }));
+
+    const requestedMapped = (item.punches || []).map((p) => ({
+      ...p,
+      source: 'correction',
+      isAdded: true,
+      isDeleted: Boolean((p as any).isDeleted),
+    }));
+
+    const result = [...existingMapped];
+
+    requestedMapped.forEach((req) => {
+      const normTime = (t: string) => {
+        const m = moment(t, ['HH:mm:ss', 'hh:mm A', 'HH:mm']);
+        return m.isValid() ? m.format('HH:mm') : t;
+      };
+
+      const existingIndex = result.findIndex((ex) => {
+        return normTime(ex.time) === normTime(req.time) && ex.type?.toUpperCase() === req.type?.toUpperCase();
+      });
+
+      if (existingIndex !== -1) {
+        result[existingIndex] = {
+          ...result[existingIndex],
+          isAdded: true,
+          source: 'correction',
+          isDeleted: req.isDeleted ?? result[existingIndex].isDeleted,
+        };
+      } else {
+        result.push(req);
+      }
+    });
+
+    const parsePunchSecs = (tStr: string) => {
+      const m = moment(tStr, ['HH:mm:ss', 'hh:mm A', 'HH:mm']);
+      if (!m.isValid()) return 0;
+      return m.hours() * 3600 + m.minutes() * 60 + m.seconds();
+    };
+
+    return result.sort((a, b) => parsePunchSecs(a.time) - parsePunchSecs(b.time));
+  }, [existingPunches, item]);
+
+  // Compute metrics from allPunches
+  const preview = useMemo(() => {
+    if (!allPunches || allPunches.length === 0) {
+      return {
+        totalHours: '0h 0m',
+        totalBreaks: '0h 0m',
+        sequenceText: '✓ Valid',
+        sequenceError: null,
+      };
+    }
+
+    const parsePunchSecs = (tStr: string) => {
+      const m = moment(tStr, ['HH:mm:ss', 'hh:mm A', 'HH:mm']);
+      if (!m.isValid()) return 0;
+      return m.hours() * 3600 + m.minutes() * 60 + m.seconds();
+    };
+
+    const sorted = [...allPunches].sort((a, b) => parsePunchSecs(a.time) - parsePunchSecs(b.time));
+
+    let workSecs = 0;
+    let breakSecs = 0;
+    let seqErr: string | null = null;
+
+    for (let i = 0; i < sorted.length; i++) {
+      const cur = sorted[i];
+      if (i === 0) {
+        if (cur.type === 'OUT') {
+          seqErr = `Sequence error: First punch cannot be Punch Out at ${cur.time}`;
+        }
+      } else {
+        const prev = sorted[i - 1];
+        const dur = Math.max(0, parsePunchSecs(cur.time) - parsePunchSecs(prev.time));
+
+        if (prev.type === 'IN' && cur.type === 'OUT') {
+          workSecs += dur;
+        } else if (prev.type === 'OUT' && cur.type === 'IN') {
+          breakSecs += dur;
+        } else if (prev.type === 'IN' && cur.type === 'IN') {
+          if (!seqErr) seqErr = `Sequence error: Expected Punch Out but got Punch In at ${cur.time}`;
+        } else if (prev.type === 'OUT' && cur.type === 'OUT') {
+          if (!seqErr) seqErr = `Sequence error: Expected Punch In but got Punch Out at ${cur.time}`;
+        }
+      }
+    }
+
+    if (!seqErr && sorted.length > 0 && sorted[sorted.length - 1].type === 'IN') {
+      seqErr = 'Sequence missing: Last punch is Punch In with no matching Punch Out';
+    }
+
+    const hW = Math.floor(workSecs / 3600);
+    const mW = Math.floor((workSecs % 3600) / 60);
+    const hB = Math.floor(breakSecs / 3600);
+    const mB = Math.floor((breakSecs % 3600) / 60);
+
+    return {
+      totalHours: `${hW}h ${mW}m`,
+      totalBreaks: `${hB}h ${mB}m`,
+      sequenceText: !seqErr ? '✓ Valid' : '1 Missing / Issue',
+      sequenceError: seqErr,
+    };
+  }, [allPunches]);
+
+  const formattedDateHeader = useMemo(() => {
+    if (!item?.date) return '';
+    const m = moment(item.date);
+    return m.isValid() ? m.format('DD MMM YYYY') : item.date;
+  }, [item?.date]);
+
+  if (!item) return null;
+
+  const sc = STATUS_COLOR[item.status] ?? colors.text.muted;
+  const sb = STATUS_BG[item.status]   ?? 'rgba(156, 163, 175, 0.1)';
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' }}>
+        <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFillObject} />
+        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
+
+        <Animated.View
+          entering={FadeInUp.springify()}
+          style={{
+            backgroundColor: colors.white,
+            borderTopLeftRadius: normalize(24),
+            borderTopRightRadius: normalize(24),
+            padding: normalize(20),
+            height: '82%',
+            maxHeight: '88%',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 10,
+          }}
+        >
+          {/* Drag Handle Bar */}
+          <View style={{ width: normalize(40), height: normalize(4), backgroundColor: '#CBD5E1', borderRadius: 2, alignSelf: 'center', marginBottom: normalize(14) }} />
+
+          {/* Modal Header */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: normalize(12) }}>
+            <Typography style={{ fontSize: normalize(15), fontWeight: '800', color: colors.text.primary, flex: 1 }}>
+              Correction Request — {item.employeeName || 'Employee'} ({formattedDateHeader})
+            </Typography>
+            <TouchableOpacity onPress={onClose} style={s.centerModalCloseBtn}>
+              <X size={normalize(16)} color={colors.text.primary} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Form Scroll Content */}
+          <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: normalize(12) }}>
+            {/* Employee Info & Status */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: normalize(8) }}>
+              <Typography style={{ fontSize: normalize(13), color: colors.text.primary, fontWeight: '700' }}>
+                Employee: {item.employeeName || 'Employee'} {item.empCode ? `(${item.empCode})` : ''}
+              </Typography>
+              <View style={[s.statusBadge, { backgroundColor: sb }]}>
+                <View style={[s.statusDot, { backgroundColor: sc }]} />
+                <Typography style={[s.statusBadgeText, { color: sc }]}>{item.status}</Typography>
+              </View>
+            </View>
+
+            {item.reason ? (
+              <Typography style={{ fontSize: normalize(13), color: colors.text.secondary, fontWeight: '600', marginBottom: normalize(14) }}>
+                Reason: <Typography style={{ color: colors.black, fontWeight: '700' }}>{item.reason}</Typography>
+              </Typography>
+            ) : null}
+
+            {/* Punch Entries Section */}
+            <Typography style={{ fontSize: normalize(11), fontWeight: '900', color: colors.text.secondary, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: normalize(10) }}>
+              PUNCH ENTRIES ({formattedDateHeader.toUpperCase()})
+            </Typography>
+
+            {isLoadingPunches ? (
+              <View style={[s.punchEmptyBox, { justifyContent: 'center', paddingVertical: normalize(16), gap: normalize(8), marginBottom: normalize(14) }]}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Typography style={{ fontSize: normalize(12), color: colors.text.secondary, fontWeight: '600' }}>
+                  Loading employee punch records...
+                </Typography>
+              </View>
+            ) : (
+              <View style={{ gap: normalize(8), marginBottom: normalize(16) }}>
+                {allPunches.map((p, idx) => (
+                  <View
+                    key={p.id || idx}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: normalize(10),
+                      backgroundColor: p.isAdded ? '#F0FDF4' : '#F8FAFC',
+                      borderRadius: normalize(10),
+                      borderLeftWidth: 4,
+                      borderLeftColor: p.isAdded ? '#10B981' : (p.type === 'IN' ? '#10B981' : '#64748B'),
+                      borderWidth: 1,
+                      borderColor: p.isAdded ? 'rgba(16, 185, 129, 0.25)' : '#E2E8F0',
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(10) }}>
+                      <View style={{ paddingHorizontal: normalize(8), paddingVertical: normalize(3), borderRadius: normalize(6), backgroundColor: p.type === 'IN' ? '#DCFCE7' : '#E2E8F0' }}>
+                        <Typography style={{ fontSize: normalize(10), fontWeight: '900', color: p.type === 'IN' ? '#15803D' : '#475569' }}>
+                          PUNCH {p.type}
+                        </Typography>
+                      </View>
+                      <Typography style={{ fontSize: normalize(14), fontWeight: '800', fontFamily: 'monospace', color: colors.text.primary }}>
+                        {p.time}
+                      </Typography>
+                      {p.isAdded ? (
+                        <Typography style={{ fontSize: normalize(12), color: colors.text.muted, fontWeight: '600' }}>
+                          Correction
+                        </Typography>
+                      ) : null}
+                    </View>
+
+                    {p.isAdded ? (
+                      <View style={{ paddingHorizontal: normalize(8), paddingVertical: normalize(3), borderRadius: normalize(6), backgroundColor: '#DCFCE7' }}>
+                        <Typography style={{ fontSize: normalize(11), fontWeight: '800', color: '#15803D' }}>
+                          Added
+                        </Typography>
+                      </View>
+                    ) : (
+                      <Typography style={{ fontSize: normalize(11), color: colors.text.muted, fontWeight: '600' }}>
+                        {p.source || 'Machine'}
+                      </Typography>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* CORRECTION PREVIEW Box */}
+            <View style={{ backgroundColor: colors.white, borderRadius: normalize(14), borderWidth: 1, borderColor: '#E2E8F0', padding: normalize(14), marginBottom: normalize(16) }}>
+              <Typography style={{ fontSize: normalize(11), fontWeight: '900', color: colors.text.secondary, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: normalize(12) }}>
+                CORRECTION PREVIEW
+              </Typography>
+
+              <View style={{ flexDirection: 'row', gap: normalize(8), marginBottom: preview.sequenceError ? normalize(12) : 0 }}>
+                <View style={{ flex: 1, backgroundColor: '#F8FAFC', borderRadius: normalize(10), padding: normalize(10), alignItems: 'center', borderWidth: 1, borderColor: '#F1F5F9' }}>
+                  <Typography style={{ fontSize: normalize(10), fontWeight: '800', color: colors.text.muted, textTransform: 'uppercase', marginBottom: 4 }}>
+                    TOTAL HOURS
+                  </Typography>
+                  <Typography style={{ fontSize: normalize(15), fontWeight: '900', color: colors.black }}>
+                    {preview.totalHours}
+                  </Typography>
+                </View>
+
+                <View style={{ flex: 1, backgroundColor: '#F8FAFC', borderRadius: normalize(10), padding: normalize(10), alignItems: 'center', borderWidth: 1, borderColor: '#F1F5F9' }}>
+                  <Typography style={{ fontSize: normalize(10), fontWeight: '800', color: colors.text.muted, textTransform: 'uppercase', marginBottom: 4 }}>
+                    TOTAL BREAKS
+                  </Typography>
+                  <Typography style={{ fontSize: normalize(15), fontWeight: '900', color: colors.black }}>
+                    {preview.totalBreaks}
+                  </Typography>
+                </View>
+
+                <View style={{ flex: 1, backgroundColor: '#F8FAFC', borderRadius: normalize(10), padding: normalize(10), alignItems: 'center', borderWidth: 1, borderColor: '#F1F5F9' }}>
+                  <Typography style={{ fontSize: normalize(10), fontWeight: '800', color: colors.text.muted, textTransform: 'uppercase', marginBottom: 4 }}>
+                    SEQUENCE
+                  </Typography>
+                  <Typography style={{ fontSize: normalize(12), fontWeight: '900', color: preview.sequenceError ? '#D97706' : '#10B981' }}>
+                    {preview.sequenceText}
+                  </Typography>
+                </View>
+              </View>
+
+              {preview.sequenceError && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(6), paddingTop: normalize(10), borderTopWidth: 1, borderTopColor: '#F1F5F9' }}>
+                  <AlertTriangle size={14} color="#D97706" />
+                  <Typography style={{ flex: 1, fontSize: normalize(12), fontWeight: '700', color: '#D97706' }}>
+                    {preview.sequenceError}
+                  </Typography>
+                </View>
+              )}
+            </View>
+          </ScrollView>
+
+          {/* Footer Action Buttons */}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: normalize(8), paddingTop: normalize(12), borderTopWidth: 1, borderTopColor: '#F1F5F9' }}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={onClose}
+              style={{
+                paddingHorizontal: normalize(18),
+                paddingVertical: normalize(9),
+                borderRadius: normalize(10),
+                borderWidth: 1.5,
+                borderColor: '#CBD5E1',
+                backgroundColor: colors.white,
+              }}
+            >
+              <Typography style={{ fontSize: normalize(13), fontWeight: '800', color: colors.text.primary }}>
+                Close
+              </Typography>
+            </TouchableOpacity>
+
+            {item.status === 'Pending' && onReject && (
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => onReject(item)}
+                style={{
+                  paddingHorizontal: normalize(18),
+                  paddingVertical: normalize(9),
+                  borderRadius: normalize(10),
+                  borderWidth: 1.5,
+                  borderColor: '#EF4444',
+                  backgroundColor: colors.white,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: normalize(6),
+                }}
+              >
+                <XCircle size={14} color="#EF4444" />
+                <Typography style={{ fontSize: normalize(13), fontWeight: '800', color: '#EF4444' }}>
+                  Reject
+                </Typography>
+              </TouchableOpacity>
+            )}
+
+            {item.status === 'Pending' && onApprove && (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => onApprove(item)}
+                style={{ borderRadius: normalize(10), overflow: 'hidden' }}
+              >
+                <LinearGradient
+                  colors={colors.loginButtonBgGradient as any}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{
+                    paddingHorizontal: normalize(20),
+                    paddingVertical: normalize(10),
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: normalize(6),
+                  }}
+                >
+                  <CheckCircle2 size={14} color={colors.white} />
+                  <Typography style={{ fontSize: normalize(13), fontWeight: '800', color: colors.white }}>
+                    Approve
+                  </Typography>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   NEW ATTENDANCE CORRECTION MODAL (Center modal with scrolling)
+═══════════════════════════════════════════════════════════════ */
+
+export const NewCorrectionModal = ({
+  visible,
+  onClose,
+  onSubmit,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSubmit: (data: { date: string; punches: AttendanceCorrectionPunch[]; reason: string }) => void;
+}) => {
+  const [selectedDate, setSelectedDate] = useState<string>(() => moment().format('DD/MM/YYYY'));
+  const [reason, setReason] = useState<string>('');
+  const [isLoadingPunches, setIsLoadingPunches] = useState<boolean>(false);
+
+  // Punch addition states
+  const [punchType, setPunchType] = useState<'IN' | 'OUT'>('IN');
+  const [punchTime, setPunchTime] = useState<string>('09:00 AM');
+  const [punches, setPunches] = useState<AttendanceCorrectionPunch[]>([]);
+
+  // Time picker modal states
+  const [showTimePickerModal, setShowTimePickerModal] = useState<boolean>(false);
+  const [selectedHour, setSelectedHour] = useState<string>('09');
+  const [selectedMin, setSelectedMin] = useState<string>('00');
+  const [selectedMeridiem, setSelectedMeridiem] = useState<'AM' | 'PM'>('AM');
+
+  // Fetch punches via GET API when selectedDate changes or modal opens
+  useEffect(() => {
+    if (!visible) return;
+    const dateVal = selectedDate || moment().format('DD/MM/YYYY');
+    const apiDateStr = moment(dateVal, ['DD/MM/YYYY', 'YYYY-MM-DD']).isValid()
+      ? moment(dateVal, ['DD/MM/YYYY', 'YYYY-MM-DD']).format('YYYY-MM-DD')
+      : moment().format('YYYY-MM-DD');
+
+    let isMounted = true;
+    setIsLoadingPunches(true);
+
+    attendanceApi.getPunchesByDate(apiDateStr)
+      .then((data) => {
+        if (isMounted) {
+          setPunches(data || []);
+        }
+      })
+      .catch(() => {
+        if (isMounted) setPunches([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingPunches(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedDate, visible]);
+
+  // Compute correction preview metrics
+  const preview = useMemo(() => {
+    if (!punches || punches.length === 0) {
+      return {
+        totalHours: '0h 0m',
+        totalBreaks: '0h 0m',
+        sequenceText: '✓ Valid',
+        sequenceError: null,
+      };
+    }
+
+    const parsePunchSecs = (tStr: string) => {
+      const m = moment(tStr, ['HH:mm:ss', 'hh:mm A', 'HH:mm']);
+      if (!m.isValid()) return 0;
+      return m.hours() * 3600 + m.minutes() * 60 + m.seconds();
+    };
+
+    const sorted = [...punches].sort((a, b) => parsePunchSecs(a.time) - parsePunchSecs(b.time));
+
+    let workSecs = 0;
+    let breakSecs = 0;
+    let seqErr: string | null = null;
+
+    for (let i = 0; i < sorted.length; i++) {
+      const cur = sorted[i];
+      if (i === 0) {
+        if (cur.type === 'OUT') {
+          seqErr = `Sequence error: First punch cannot be Punch Out at ${cur.time}`;
+        }
+      } else {
+        const prev = sorted[i - 1];
+        const dur = Math.max(0, parsePunchSecs(cur.time) - parsePunchSecs(prev.time));
+
+        if (prev.type === 'IN' && cur.type === 'OUT') {
+          workSecs += dur;
+        } else if (prev.type === 'OUT' && cur.type === 'IN') {
+          breakSecs += dur;
+        } else if (prev.type === 'IN' && cur.type === 'IN') {
+          if (!seqErr) seqErr = `Sequence error: Expected Punch Out but got Punch In at ${cur.time}`;
+        } else if (prev.type === 'OUT' && cur.type === 'OUT') {
+          if (!seqErr) seqErr = `Sequence error: Expected Punch In but got Punch Out at ${cur.time}`;
+        }
+      }
+    }
+
+    if (!seqErr && sorted.length > 0 && sorted[sorted.length - 1].type === 'IN') {
+      seqErr = 'Sequence missing: Last punch is Punch In with no matching Punch Out';
+    }
+
+    const hW = Math.floor(workSecs / 3600);
+    const mW = Math.floor((workSecs % 3600) / 60);
+    const hB = Math.floor(breakSecs / 3600);
+    const mB = Math.floor((breakSecs % 3600) / 60);
+
+    return {
+      totalHours: `${hW}h ${mW}m`,
+      totalBreaks: `${hB}h ${mB}m`,
+      sequenceText: !seqErr ? '✓ Valid' : '1 Missing / Issue',
+      sequenceError: seqErr,
+    };
+  }, [punches]);
+
+  const handleAddPunch = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const newEntry: AttendanceCorrectionPunch = {
+      id: `punch_${Date.now()}`,
+      type: punchType,
+      time: punchTime,
+      source: 'Added',
+      isAdded: true,
+    };
+    setPunches((prev) => [newEntry, ...prev]);
+  };
+
+  const handleDeletePunch = async (id: string) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPunches((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  const formattedDateHeader = useMemo(() => {
+    if (!selectedDate) return '';
+    const m = moment(selectedDate, ['DD/MM/YYYY', 'YYYY-MM-DD']);
+    return m.isValid() ? m.format('DD MMM YYYY') : selectedDate;
+  }, [selectedDate]);
+
+  return (
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+      <BlurView intensity={40} tint="dark" style={s.centerModalOverlay}>
+        <Animated.View entering={FadeInUp.springify()} style={s.centerModalCard}>
+          {/* Header */}
+          <View style={s.centerModalHeader}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(10) }}>
+              <View style={{ width: normalize(32), height: normalize(32), borderRadius: normalize(10), backgroundColor: colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
+                <Clock size={normalize(18)} color={colors.primary} />
+              </View>
+              <Typography style={s.centerModalTitle}>New Attendance Correction</Typography>
+            </View>
+            <TouchableOpacity onPress={onClose} style={s.centerModalCloseBtn}>
+              <X size={normalize(16)} color={colors.text.primary} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Main Form Scroll View */}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled={true}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingBottom: normalize(12) }}
+          >
+            {/* Common DatePicker Component */}
+            <View style={{ marginBottom: normalize(14) }}>
+              <DatePicker
+                label="Date"
+                required
+                initialDate={selectedDate}
+                onDateChange={(dateStr: string) => setSelectedDate(dateStr)}
+              />
+            </View>
+
+            {/* Punch Entries Section (if Date selected) */}
+            {selectedDate ? (
+              <View style={{ marginBottom: normalize(14) }}>
+                <Typography style={[s.modalFieldLabel, { color: colors.black, fontWeight: '800' }]}>
+                  Punch Entries for {formattedDateHeader}
+                </Typography>
+
+                {/* Add Punch Box */}
+                <View style={s.addPunchCard}>
+                  <Typography style={s.addPunchTitle}>Add Punch</Typography>
+                  <View style={s.addPunchControls}>
+                    {/* Dynamic Punch Type Toggle Selector */}
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={[
+                        s.punchTypeSelector,
+                        punchType === 'IN' ? s.punchTypeSelectorIn : s.punchTypeSelectorOut,
+                      ]}
+                      onPress={async () => {
+                        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setPunchType(punchType === 'IN' ? 'OUT' : 'IN');
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(6) }}>
+                        <View
+                          style={{
+                            width: normalize(7),
+                            height: normalize(7),
+                            borderRadius: normalize(3.5),
+                            backgroundColor: punchType === 'IN' ? '#10B981' : '#475569',
+                          }}
+                        />
+                        <Typography
+                          style={[
+                            s.punchTypeSelectText,
+                            punchType === 'IN' ? s.punchTypeSelectTextIn : s.punchTypeSelectTextOut,
+                          ]}
+                        >
+                          Punch {punchType === 'IN' ? 'In' : 'Out'}
+                        </Typography>
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Time Input / Picker Selector Box */}
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={s.timeInputBox}
+                      onPress={async () => {
+                        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setShowTimePickerModal(true);
+                      }}
+                    >
+                      <Typography style={s.timeInputText}>{punchTime}</Typography>
+                      <View style={s.timeIconBadge}>
+                        <Clock size={13} color={colors.primary} />
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Add Button with Gradient */}
+                    <TouchableOpacity activeOpacity={0.85} style={s.addPunchBtnGrad} onPress={handleAddPunch}>
+                      <LinearGradient
+                        colors={colors.loginButtonBgGradient as any}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={s.addPunchBtn}
+                      >
+                        <Plus size={15} color={colors.white} />
+                        <Typography style={s.addPunchBtnText}>Add</Typography>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Punch List / Empty Banner / Loader */}
+                {isLoadingPunches ? (
+                  <View style={[s.punchEmptyBox, { justifyContent: 'center', paddingVertical: normalize(16), gap: normalize(8) }]}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Typography style={{ fontSize: normalize(12), color: colors.text.secondary, fontWeight: '600' }}>
+                      Fetching punches for {formattedDateHeader}...
+                    </Typography>
+                  </View>
+                ) : punches.length === 0 ? (
+                  <View style={s.punchEmptyBox}>
+                    <Info size={18} color={colors.primary} />
+                    <Typography style={s.punchEmptyText}>
+                      No punches recorded for this date. Use the bar above to add a punch.
+                    </Typography>
+                  </View>
+                ) : (
+                  <View style={s.punchListContainer}>
+                    <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false} style={{ maxHeight: normalize(190) }}>
+                      {punches.map((p) => (
+                        <View
+                          key={p.id}
+                          style={[
+                            s.punchEntryRow,
+                            p.type === 'IN' ? s.punchEntryRowIn : s.punchEntryRowOut,
+                          ]}
+                        >
+                          <View style={s.punchRowLeft}>
+                            <View style={p.type === 'IN' ? s.punchInBadge : s.punchOutBadge}>
+                              <Typography style={p.type === 'IN' ? s.punchInBadgeText : s.punchOutBadgeText}>
+                                PUNCH {p.type}
+                              </Typography>
+                            </View>
+                            <Typography style={s.punchTimeText}>{p.time}</Typography>
+                            {p.isAdded ? (
+                              <View style={s.addedBadge}>
+                                <Typography style={s.addedBadgeText}>Added</Typography>
+                              </View>
+                            ) : (
+                              <Typography style={s.punchSourceTag}>{p.source}</Typography>
+                            )}
+                          </View>
+
+                          <TouchableOpacity
+                            onPress={() => handleDeletePunch(p.id)}
+                            style={{ padding: normalize(4), flexDirection: 'row', alignItems: 'center', gap: normalize(4) }}
+                          >
+                            {p.isAdded ? (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(4), borderWidth: 1, borderColor: colors.primary, borderRadius: normalize(6), paddingHorizontal: normalize(8), paddingVertical: normalize(3), backgroundColor: colors.primary + '08' }}>
+                                <RotateCcw size={12} color={colors.primary} />
+                                <Typography style={{ color: colors.primary, fontSize: normalize(11), fontWeight: '800' }}>
+                                  Undo
+                                </Typography>
+                              </View>
+                            ) : (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(4) }}>
+                                <Trash2 size={13} color={colors.primary} />
+                                <Typography style={s.deletePunchBtnText}>Delete</Typography>
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
+                {/* Correction Preview Card */}
+                {punches.length > 0 && (
+                  <View style={s.previewContainer}>
+                    <Typography style={s.previewTitle}>CORRECTION PREVIEW</Typography>
+                    <View style={s.previewGrid}>
+                      <View style={s.previewCell}>
+                        <Typography style={s.previewCellLabel}>TOTAL HOURS</Typography>
+                        <Typography style={[s.previewCellVal, { color: colors.primary }]}>{preview.totalHours}</Typography>
+                      </View>
+                      <View style={s.previewCell}>
+                        <Typography style={s.previewCellLabel}>TOTAL BREAKS</Typography>
+                        <Typography style={[s.previewCellVal, { color: colors.emailBlue }]}>{preview.totalBreaks}</Typography>
+                      </View>
+                      <View style={s.previewCell}>
+                        <Typography style={s.previewCellLabel}>SEQUENCE</Typography>
+                        <Typography style={[s.previewCellVal, { color: preview.sequenceError ? colors.warning : colors.success, fontSize: normalize(12) }]}>
+                          {preview.sequenceText}
+                        </Typography>
+                      </View>
+                    </View>
+
+                    {preview.sequenceError && (
+                      <View style={s.sequenceErrorBox}>
+                        <AlertTriangle size={16} color="#D97706" />
+                        <Typography style={s.sequenceErrorText}>
+                          {preview.sequenceError}
+                        </Typography>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
+            ) : null}
+
+            {/* Reason Field */}
+            <View style={{ marginBottom: normalize(14) }}>
+              <Typography style={s.modalFieldLabel}>
+                Reason <Typography style={{ color: colors.error }}>*</Typography>
+              </Typography>
+              <TextInput
+                value={reason}
+                onChangeText={setReason}
+                placeholder="Explain why this correction is needed..."
+                placeholderTextColor={colors.text.muted}
+                multiline
+                style={[s.modalInput, { height: normalize(90), textAlignVertical: 'top' }]}
+              />
+              <Typography
+                style={{
+                  fontSize: normalize(11),
+                  fontWeight: '700',
+                  color: reason.length < 5 ? '#D97706' : colors.success,
+                  marginTop: normalize(4),
+                }}
+              >
+                Min 5 characters required ({reason.length}/5)
+              </Typography>
+            </View>
+          </ScrollView>
+
+          {/* FIXED Footer Action Buttons at Bottom */}
+          <View style={s.formFooterRow}>
+            <TouchableOpacity activeOpacity={0.8} style={s.formCancelBtn} onPress={onClose}>
+              <Typography style={s.formCancelBtnText}>Cancel</Typography>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.85}
+              disabled={reason.length < 5 || !selectedDate}
+              style={[
+                s.formSubmitBtnGrad,
+                (reason.length < 5 || !selectedDate) && s.formSubmitBtnDisabled,
+              ]}
+              onPress={async () => {
+                await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                onSubmit({ date: selectedDate, punches, reason });
+                onClose();
+              }}
+            >
+              <LinearGradient
+                colors={(reason.length < 5 || !selectedDate) ? ['#94A3B8', '#CBD5E1'] : colors.loginButtonBgGradient as any}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={s.formSubmitBtn}
+              >
+                <Typography style={s.formSubmitBtnText}>Submit Correction</Typography>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </BlurView>
+
+      {/* Luxury Time Selector Modal Overlay */}
+      {showTimePickerModal && (
+        <Modal visible={showTimePickerModal} animationType="fade" transparent onRequestClose={() => setShowTimePickerModal(false)}>
+          <BlurView intensity={50} tint="dark" style={s.centerModalOverlay}>
+            <Animated.View entering={FadeInUp.springify()} style={[s.centerModalCard, { maxWidth: normalize(380), height: 'auto' }]}>
+              {/* Modal Header */}
+              <View style={s.centerModalHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(8) }}>
+                  <View style={{ width: normalize(32), height: normalize(32), borderRadius: normalize(10), backgroundColor: colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
+                    <Clock size={normalize(18)} color={colors.primary} />
+                  </View>
+                  <Typography style={s.centerModalTitle}>Select Punch Time</Typography>
+                </View>
+                <TouchableOpacity onPress={() => setShowTimePickerModal(false)} style={s.centerModalCloseBtn}>
+                  <X size={normalize(16)} color={colors.text.primary} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Digital Time Preview Banner */}
+              <View style={s.digitalTimeBanner}>
+                <Typography style={s.digitalTimeText}>
+                  {`${selectedHour}:${selectedMin} ${selectedMeridiem}`}
+                </Typography>
+                <Typography style={s.digitalTimeSub}>SELECTED TIME</Typography>
+              </View>
+
+              {/* Quick Presets */}
+              <Typography style={{ fontSize: normalize(11), color: colors.text.secondary, fontWeight: '800', marginBottom: normalize(8), textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Quick Presets
+              </Typography>
+
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: normalize(8), marginBottom: normalize(16) }}>
+                {['09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '01:00 PM', '06:00 PM', '07:00 PM'].map((preset) => {
+                  const isCurrent = `${selectedHour}:${selectedMin} ${selectedMeridiem}` === preset;
+                  return (
+                    <TouchableOpacity
+                      key={preset}
+                      activeOpacity={0.8}
+                      onPress={async () => {
+                        await Haptics.selectionAsync();
+                        const parts = preset.split(/[: ]/);
+                        if (parts.length >= 3) {
+                          setSelectedHour(parts[0]);
+                          setSelectedMin(parts[1]);
+                          setSelectedMeridiem(parts[2] as 'AM' | 'PM');
+                        }
+                        setPunchTime(preset);
+                      }}
+                      style={{ borderRadius: normalize(10), overflow: 'hidden' }}
+                    >
+                      {isCurrent ? (
+                        <LinearGradient
+                          colors={colors.loginButtonBgGradient as any}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={{ paddingHorizontal: normalize(12), paddingVertical: normalize(7), alignItems: 'center' }}
+                        >
+                          <Typography style={{ fontSize: normalize(12), fontWeight: '800', color: colors.white }}>
+                            {preset}
+                          </Typography>
+                        </LinearGradient>
+                      ) : (
+                        <View style={{ paddingHorizontal: normalize(12), paddingVertical: normalize(7), backgroundColor: '#F1F5F9', alignItems: 'center', borderRadius: normalize(10) }}>
+                          <Typography style={{ fontSize: normalize(12), fontWeight: '700', color: colors.black }}>
+                            {preset}
+                          </Typography>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Custom Time Selector (Hours, Minutes, AM/PM) */}
+              <View style={{ marginBottom: normalize(18) }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: normalize(10) }}>
+                  <Typography style={{ fontSize: normalize(11), color: colors.text.secondary, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    Custom Time
+                  </Typography>
+
+                  {/* AM / PM Segmented Switch */}
+                  <View style={{ flexDirection: 'row', backgroundColor: '#F1F5F9', borderRadius: normalize(10), padding: 3, borderWidth: 1.5, borderColor: '#E2E8F0' }}>
+                    {(['AM', 'PM'] as const).map((mer) => (
+                      <TouchableOpacity
+                        key={mer}
+                        onPress={async () => {
+                          await Haptics.selectionAsync();
+                          setSelectedMeridiem(mer);
+                        }}
+                        style={{ borderRadius: normalize(8), overflow: 'hidden' }}
+                      >
+                        {selectedMeridiem === mer ? (
+                          <LinearGradient
+                            colors={colors.loginButtonBgGradient as any}
+                            style={{ paddingHorizontal: normalize(14), paddingVertical: normalize(6) }}
+                          >
+                            <Typography style={{ fontSize: normalize(12), fontWeight: '900', color: colors.white }}>
+                              {mer}
+                            </Typography>
+                          </LinearGradient>
+                        ) : (
+                          <View style={{ paddingHorizontal: normalize(14), paddingVertical: normalize(6) }}>
+                            <Typography style={{ fontSize: normalize(12), fontWeight: '800', color: colors.text.secondary }}>
+                              {mer}
+                            </Typography>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Hour Selection (01 - 12) */}
+                <Typography style={{ fontSize: normalize(11), fontWeight: '800', color: colors.text.muted, marginBottom: normalize(6), textTransform: 'uppercase' }}>
+                  Hours (01 - 12)
+                </Typography>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: normalize(12) }}>
+                  {Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0')).map((h) => (
+                    <TouchableOpacity
+                      key={h}
+                      activeOpacity={0.8}
+                      onPress={async () => {
+                        await Haptics.selectionAsync();
+                        setSelectedHour(h);
+                      }}
+                      style={{ marginRight: normalize(8), borderRadius: normalize(12), overflow: 'hidden' }}
+                    >
+                      {selectedHour === h ? (
+                        <LinearGradient
+                          colors={colors.loginButtonBgGradient as any}
+                          style={{
+                            width: normalize(48),
+                            height: normalize(48),
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Typography style={{ fontSize: normalize(16), fontWeight: '900', color: colors.white }}>
+                            {h}
+                          </Typography>
+                        </LinearGradient>
+                      ) : (
+                        <View
+                          style={{
+                            width: normalize(48),
+                            height: normalize(48),
+                            backgroundColor: '#F8FAFC',
+                            borderWidth: 1.5,
+                            borderColor: '#E2E8F0',
+                            borderRadius: normalize(12),
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Typography style={{ fontSize: normalize(15), fontWeight: '800', color: colors.black }}>
+                            {h}
+                          </Typography>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                {/* Minute Selection (00 - 59) */}
+                <Typography style={{ fontSize: normalize(11), fontWeight: '800', color: colors.text.muted, marginBottom: normalize(6), textTransform: 'uppercase' }}>
+                  Minutes (00 - 59)
+                </Typography>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')).map((m) => (
+                    <TouchableOpacity
+                      key={m}
+                      activeOpacity={0.8}
+                      onPress={async () => {
+                        await Haptics.selectionAsync();
+                        setSelectedMin(m);
+                      }}
+                      style={{ marginRight: normalize(8), borderRadius: normalize(12), overflow: 'hidden' }}
+                    >
+                      {selectedMin === m ? (
+                        <LinearGradient
+                          colors={colors.loginButtonBgGradient as any}
+                          style={{
+                            width: normalize(48),
+                            height: normalize(48),
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Typography style={{ fontSize: normalize(16), fontWeight: '900', color: colors.white }}>
+                            {m}
+                          </Typography>
+                        </LinearGradient>
+                      ) : (
+                        <View
+                          style={{
+                            width: normalize(48),
+                            height: normalize(48),
+                            backgroundColor: '#F8FAFC',
+                            borderWidth: 1.5,
+                            borderColor: '#E2E8F0',
+                            borderRadius: normalize(12),
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Typography style={{ fontSize: normalize(15), fontWeight: '800', color: colors.black }}>
+                            {m}
+                          </Typography>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+
+              {/* Set Time Button */}
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={{ borderRadius: normalize(14), overflow: 'hidden', shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 4 }}
+                onPress={async () => {
+                  await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setPunchTime(`${selectedHour}:${selectedMin} ${selectedMeridiem}`);
+                  setShowTimePickerModal(false);
+                }}
+              >
+                <LinearGradient
+                  colors={colors.loginButtonBgGradient as any}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{ paddingVertical: normalize(13), alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: normalize(6) }}
+                >
+                  <CheckCircle2 size={16} color={colors.white} />
+                  <Typography style={s.formSubmitBtnText}>Set Punch Time</Typography>
+                </LinearGradient>
+              </TouchableOpacity>
+            </Animated.View>
+          </BlurView>
+        </Modal>
+      )}
+    </Modal>
+  );
+};
+

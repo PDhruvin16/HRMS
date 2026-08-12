@@ -6,7 +6,7 @@ import {
   View,
   RefreshControl,
   ActivityIndicator,
-  StyleSheet,
+  StyleSheet,               
   ListRenderItem,
   FlatListProps,
   Platform,

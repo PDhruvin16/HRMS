@@ -220,13 +220,80 @@ const s = StyleSheet.create({
   rejectionInput:     { backgroundColor: '#F9FAFB', borderRadius: normalize(14), padding: normalize(14), fontSize: normalize(14), color: colors.black, borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.05)', fontWeight: '500', height: normalize(100), textAlignVertical: 'top', marginBottom: normalize(16) },
   rejectionFooter:    { flexDirection: 'row', gap: normalize(10) },
   rejectionCancelBtn: { flex: 1, paddingVertical: normalize(12), borderRadius: normalize(14), borderWidth: 1, borderColor: 'rgba(0,0,0,0.08)', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.white },
-  rejectionCancelText: { fontSize: normalize(13), fontWeight: '750', color: colors.text.secondary },
+  rejectionCancelText: { fontSize: normalize(13), fontWeight: '700', color: colors.text.secondary },
   rejectionSubmitBtn:  { flex: 1, borderRadius: normalize(14), overflow: 'hidden' },
   rejectionSubmitGrad: { paddingVertical: normalize(12), alignItems: 'center', justifyContent: 'center' },
-  rejectionSubmitText: { fontSize: normalize(13), fontWeight: '850', color: colors.white },
+  rejectionSubmitText: { fontSize: normalize(13), fontWeight: '800', color: colors.white },
 
   /* ── Issue row ───────────────────────────────────────────── */
   issueRow: { flexDirection: 'row', flexWrap: 'wrap', gap: normalize(6) },
+
+  /* ── Center Modal (My Corrections) ────────────────────────── */
+  centerModalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: normalize(16) },
+  centerModalCard:    { width: '100%', maxWidth: normalize(440), height: '82%', maxHeight: '88%', backgroundColor: colors.white, borderRadius: normalize(24), padding: normalize(20), shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
+  centerModalHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: normalize(16) },
+  centerModalTitle:   { fontSize: normalize(18), fontWeight: '800', color: colors.black },
+  centerModalCloseBtn:{ width: normalize(32), height: normalize(32), borderRadius: normalize(16), backgroundColor: 'rgba(0,0,0,0.05)', alignItems: 'center', justifyContent: 'center' },
+
+  /* ── Add Punch Card & Rows ────────────────────────────────── */
+  addPunchCard:       { backgroundColor: '#F8FAFC', borderRadius: normalize(16), padding: normalize(14), marginBottom: normalize(14), borderWidth: 1.5, borderColor: '#E2E8F0', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
+  addPunchTitle:      { fontSize: normalize(13), fontWeight: '800', color: colors.black, marginBottom: normalize(12), letterSpacing: 0.3 },
+  addPunchControls:   { flexDirection: 'row', gap: normalize(8), alignItems: 'center' },
+  punchTypeSelector:  { flex: 1.1, height: normalize(42), borderRadius: normalize(12), borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: normalize(8) },
+  punchTypeSelectorIn: { backgroundColor: 'rgba(16, 185, 129, 0.08)', borderColor: 'rgba(16, 185, 129, 0.3)' },
+  punchTypeSelectorOut:{ backgroundColor: 'rgba(71, 85, 105, 0.08)', borderColor: 'rgba(71, 85, 105, 0.3)' },
+  punchTypeSelectText:{ fontSize: normalize(12), fontWeight: '800' },
+  punchTypeSelectTextIn: { color: '#059669' },
+  punchTypeSelectTextOut:{ color: '#334155' },
+  timeInputBox:       { flex: 1.3, height: normalize(42), backgroundColor: colors.white, borderRadius: normalize(12), borderWidth: 1.5, borderColor: '#CBD5E1', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: normalize(10), shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.03, shadowRadius: 3, elevation: 1 },
+  timeInputText:      { fontSize: normalize(13), fontWeight: '800', color: colors.black },
+  timeIconBadge:      { width: normalize(22), height: normalize(22), borderRadius: normalize(11), backgroundColor: 'rgba(79, 70, 229, 0.1)', alignItems: 'center', justifyContent: 'center' },
+  addPunchBtnGrad:    { height: normalize(42), borderRadius: normalize(12), overflow: 'hidden', shadowColor: colors.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 3 },
+  addPunchBtn:        { height: '100%', paddingHorizontal: normalize(12), justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: normalize(4) },
+  addPunchBtnText:    { color: colors.white, fontWeight: '800', fontSize: normalize(13) },
+
+  punchEmptyBox:      { flexDirection: 'row', alignItems: 'center', gap: normalize(10), backgroundColor: '#F8FAFC', borderRadius: normalize(14), padding: normalize(14), marginVertical: normalize(10), borderWidth: 1.5, borderColor: '#E2E8F0' },
+  punchEmptyText:     { fontSize: normalize(12), color: colors.text.secondary, fontWeight: '500', flex: 1, lineHeight: normalize(16) },
+
+  punchListContainer: { maxHeight: normalize(210), marginVertical: normalize(10), borderRadius: normalize(14), borderWidth: 1.5, borderColor: '#E2E8F0', overflow: 'hidden', backgroundColor: '#F8FAFC' },
+  punchEntryRow:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: normalize(14), paddingVertical: normalize(12), borderBottomWidth: 1, borderBottomColor: '#F1F5F9', backgroundColor: colors.white },
+  punchEntryRowIn:    { borderLeftWidth: 3.5, borderLeftColor: '#10B981' },
+  punchEntryRowOut:   { borderLeftWidth: 3.5, borderLeftColor: '#64748B' },
+  punchRowLeft:       { flexDirection: 'row', alignItems: 'center', gap: normalize(8) },
+  punchInBadge:       { backgroundColor: 'rgba(16, 185, 129, 0.12)', paddingHorizontal: normalize(8), paddingVertical: normalize(3), borderRadius: normalize(6) },
+  punchInBadgeText:   { color: '#059669', fontSize: normalize(10), fontWeight: '800' },
+  punchOutBadge:      { backgroundColor: 'rgba(100, 116, 139, 0.12)', paddingHorizontal: normalize(8), paddingVertical: normalize(3), borderRadius: normalize(6) },
+  punchOutBadgeText:  { color: '#334155', fontSize: normalize(10), fontWeight: '800' },
+  punchTimeText:      { fontSize: normalize(13), fontWeight: '800', color: colors.black },
+  punchSourceTag:     { fontSize: normalize(11), color: colors.text.muted, fontWeight: '600' },
+  addedBadge:         { backgroundColor: 'rgba(16, 185, 129, 0.15)', paddingHorizontal: normalize(6), paddingVertical: normalize(2), borderRadius: normalize(4) },
+  addedBadgeText:     { color: '#047857', fontSize: normalize(9), fontWeight: '800' },
+  deletePunchBtnText: { color: colors.primary, fontSize: normalize(12), fontWeight: '700' },
+
+  /* ── Preview Box ─────────────────────────────────────────── */
+  previewContainer:   { backgroundColor: '#F8FAFC', borderRadius: normalize(16), padding: normalize(16), marginVertical: normalize(12), borderWidth: 1.5, borderColor: '#E2E8F0' },
+  previewTitle:       { fontSize: normalize(11), fontWeight: '800', color: colors.text.muted, letterSpacing: 0.6, marginBottom: normalize(10) },
+  previewGrid:        { flexDirection: 'row', gap: normalize(8) },
+  previewCell:        { flex: 1, backgroundColor: colors.white, borderRadius: normalize(12), padding: normalize(12), alignItems: 'center', borderWidth: 1, borderColor: '#E2E8F0', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.03, shadowRadius: 4, elevation: 1 },
+  previewCellLabel:   { fontSize: normalize(9), fontWeight: '800', color: colors.text.secondary, textTransform: 'uppercase', marginBottom: normalize(4) },
+  previewCellVal:     { fontSize: normalize(14), fontWeight: '800', color: colors.black },
+
+  sequenceErrorBox:   { flexDirection: 'row', alignItems: 'center', gap: normalize(8), marginTop: normalize(10), backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: normalize(12), borderRadius: normalize(10), borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.3)' },
+  sequenceErrorText:  { fontSize: normalize(11), color: '#D97706', fontWeight: '700', flex: 1, lineHeight: normalize(15) },
+
+  /* ── Digital Time Display Banner ─────────────────────────── */
+  digitalTimeBanner:  { backgroundColor: '#3730A3', borderRadius: normalize(16), paddingVertical: normalize(14), paddingHorizontal: normalize(16), alignItems: 'center', justifyContent: 'center', marginBottom: normalize(16), shadowColor: '#3730A3', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 },
+  digitalTimeText:    { fontSize: normalize(26), fontWeight: '900', color: colors.white, letterSpacing: 1 },
+  digitalTimeSub:     { fontSize: normalize(10), fontWeight: '800', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: normalize(2) },
+
+  /* ── Footer Buttons ──────────────────────────────────────── */
+  formFooterRow:      { flexDirection: 'row', gap: normalize(12), marginTop: normalize(6), paddingTop: normalize(12), borderTopWidth: 1, borderTopColor: '#F1F5F9', backgroundColor: colors.white, width: '100%', alignItems: 'center' },
+  formCancelBtn:      { flex: 1, height: normalize(46), borderRadius: normalize(14), borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.white },
+  formCancelBtnText:  { color: colors.primary, fontWeight: '800', fontSize: normalize(14) },
+  formSubmitBtnGrad:  { flex: 1, height: normalize(46), borderRadius: normalize(14), overflow: 'hidden', shadowColor: colors.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 3 },
+  formSubmitBtn:      { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', borderRadius: normalize(14) },
+  formSubmitBtnDisabled: { opacity: 0.55 },
+  formSubmitBtnText:  { color: colors.white, fontWeight: '800', fontSize: normalize(14) },
 });
 
 export default s;

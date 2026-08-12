@@ -608,6 +608,154 @@ export const attendanceApi = {
       throw error;
     }
   },
+
+  getPunchesByDate: async (dateStr: string): Promise<any[]> => {
+    try {
+      const formattedDate = dateStr && moment(dateStr, ['YYYY-MM-DD', 'DD/MM/YYYY']).isValid()
+        ? moment(dateStr, ['YYYY-MM-DD', 'DD/MM/YYYY']).format('YYYY-MM-DD')
+        : moment().format('YYYY-MM-DD');
+
+      const url = `/attendance/my/punches?date=${formattedDate}`;
+      const response = await ApiClient.get<any>(url);
+      const rawData = response?.data?.data || response?.data || (Array.isArray(response) ? response : []);
+      if (Array.isArray(rawData)) {
+        return rawData.map((item: any) => ({
+          id: item.id || `punch_${Date.now()}_${Math.random()}`,
+          type: (item.punchType || 'in').toUpperCase() as 'IN' | 'OUT',
+          time: moment(item.punchTime).isValid() ? moment(item.punchTime).format('HH:mm:ss') : item.punchTime,
+          source: item.source ? item.source.charAt(0).toUpperCase() + item.source.slice(1) : 'Machine',
+          isAdded: false,
+        }));
+      }
+      return [];
+    } catch (error: any) {
+      if (__DEV__) {
+        console.error('[DEBUG] getPunchesByDate API call failed:', getApiErrorMessage(error));
+      }
+      return [];
+    }
+  },
+
+  submitCorrectionRequest: async (payload: {
+    requestDate: string;
+    reason: string;
+    items: Array<{
+      actionType: string;
+      punchType: string;
+      punchTime: string;
+    }>;
+  }): Promise<any> => {
+    try {
+      const response = await ApiClient.post<any>('/attendance/corrections', payload);
+      console.log('[DEBUG] POST /attendance/corrections response:', JSON.stringify(response?.data, null, 2));
+      return response?.data || response;
+    } catch (error: any) {
+      const msg = getApiErrorMessage(error);
+      if (error && typeof error === 'object') error.message = msg;
+      throw error;
+    }
+  },
+
+  getCorrectionRequests: async (): Promise<any> => {
+    try {
+      const response = await ApiClient.get<any>('/attendance/corrections/my');
+      console.log('[DEBUG] GET /attendance/corrections/my response:', JSON.stringify(response?.data, null, 2));
+      return response?.data || response;
+    } catch (error: any) {
+      console.error('[DEBUG] GET /attendance/corrections/my failed:', getApiErrorMessage(error));
+      return null;
+    }
+  },
+
+  getAllCorrectionRequests: async (): Promise<any> => {
+    try {
+      const response = await ApiClient.get<any>('/attendance/corrections');
+      console.log('[DEBUG] GET /attendance/corrections (All Approvals) response:', JSON.stringify(response?.data, null, 2));
+      return response?.data || response;
+    } catch (error: any) {
+      console.error('[DEBUG] GET /attendance/corrections failed:', getApiErrorMessage(error));
+      return null;
+    }
+  },
+
+  getEmployeePunchesByDate: async (employeeId: string, dateStr: string): Promise<any[]> => {
+    try {
+      const formattedDate = dateStr && moment(dateStr, ['YYYY-MM-DD', 'DD/MM/YYYY']).isValid()
+        ? moment(dateStr, ['YYYY-MM-DD', 'DD/MM/YYYY']).format('YYYY-MM-DD')
+        : moment().format('YYYY-MM-DD');
+
+      const url = `/attendance/employee-punches?employeeId=${encodeURIComponent(employeeId)}&date=${formattedDate}`;
+      console.log('[DEBUG] GET employee-punches URL:', url);
+      const response = await ApiClient.get<any>(url);
+      const rawData = response?.data?.data || response?.data || (Array.isArray(response) ? response : []);
+      if (Array.isArray(rawData)) {
+        return rawData.map((item: any) => ({
+          id: item.id || `punch_${Date.now()}_${Math.random()}`,
+          type: (item.punchType || 'in').toUpperCase() as 'IN' | 'OUT',
+          time: moment(item.punchTime).isValid() ? moment(item.punchTime).format('HH:mm:ss') : item.punchTime,
+          source: item.source || 'machine',
+          isDuplicate: Boolean(item.isDuplicate),
+          isDeleted: Boolean(item.isDeleted),
+          isAdded: item.source?.toLowerCase() === 'correction',
+        }));
+      }
+      return [];
+    } catch (error: any) {
+      console.error('[DEBUG] getEmployeePunchesByDate failed:', getApiErrorMessage(error));
+      return [];
+    }
+  },
+
+  approveCorrectionRequest: async (id: string): Promise<any> => {
+    try {
+      const url = `/attendance/corrections/${encodeURIComponent(id)}/approve`;
+      console.log('[DEBUG] PATCH approve correction URL:', url);
+      const response = await ApiClient.patch<any>(url, {});
+      console.log('[DEBUG] PATCH approve correction success response:', JSON.stringify(response?.data, null, 2));
+      return response?.data || response;
+    } catch (error: any) {
+      if (error?.status === 404 || error?.response?.status === 404) {
+        try {
+          console.log('[DEBUG] 404 on PATCH /attendance/corrections/:id/approve, trying POST /attendance/corrections/:id/approve');
+          const postRes = await ApiClient.post<any>(`/attendance/corrections/${encodeURIComponent(id)}/approve`, {});
+          return postRes?.data || postRes;
+        } catch (postErr: any) {
+          const msg = getApiErrorMessage(postErr);
+          if (postErr && typeof postErr === 'object') postErr.message = msg;
+          throw postErr;
+        }
+      }
+      const msg = getApiErrorMessage(error);
+      if (error && typeof error === 'object') error.message = msg;
+      throw error;
+    }
+  },
+
+  rejectCorrectionRequest: async (id: string, rejectionReason: string): Promise<any> => {
+    try {
+      const url = `/attendance/corrections/${encodeURIComponent(id)}/reject`;
+      const payload = { rejectionReason };
+      console.log('[DEBUG] PATCH reject correction URL:', url, 'payload:', payload);
+      const response = await ApiClient.patch<any>(url, payload);
+      console.log('[DEBUG] PATCH reject correction success response:', JSON.stringify(response?.data, null, 2));
+      return response?.data || response;
+    } catch (error: any) {
+      if (error?.status === 404 || error?.response?.status === 404) {
+        try {
+          console.log('[DEBUG] 404 on PATCH /attendance/corrections/:id/reject, trying POST /attendance/corrections/:id/reject');
+          const postRes = await ApiClient.post<any>(`/attendance/corrections/${encodeURIComponent(id)}/reject`, { rejectionReason });
+          return postRes?.data || postRes;
+        } catch (postErr: any) {
+          const msg = getApiErrorMessage(postErr);
+          if (postErr && typeof postErr === 'object') postErr.message = msg;
+          throw postErr;
+        }
+      }
+      const msg = getApiErrorMessage(error);
+      if (error && typeof error === 'object') error.message = msg;
+      throw error;
+    }
+  },
 };
 
 export default attendanceApi;

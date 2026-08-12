@@ -23,7 +23,10 @@ import {
   AlertTriangle,
   Home,
   Check,
-  ChevronRight
+  ChevronRight,
+  Users,
+  UserCheck,
+  UserX,
 } from 'lucide-react-native';
 import moment from 'moment';
 import { normalize, screenWidth } from '../../utils/responsive';
@@ -211,10 +214,10 @@ export const DashboardScreen: React.FC = () => {
               subtitle="Mode: OFFICE" 
             />
             <GridCard 
-              title="PUNCH IN" 
-              icon={CheckCircle2}
-              value={attendanceStatus?.isCheckedIn ? (attendanceStatus.checkInTime || '09:00 am') : '--:--'} 
-              subtitle="Today's first punch" 
+              title="LEAVING TIME" 
+              icon={Clock}
+              value={attendanceStatus?.isCheckedIn ? ((attendanceStatus as any).leavingTime || '06:00 pm') : '--:--'} 
+              subtitle="Expected punch out" 
             />
           </View>
           <View style={styles.gridRow}>
@@ -241,7 +244,20 @@ export const DashboardScreen: React.FC = () => {
           </View>
           <View style={styles.gridRow}>
             <StatBox title="LATE ARRIVALS" value={isSummaryLoading ? "..." : "0"} subtitle="This month" icon={AlertTriangle} iconColor={colors.warning} bgTint="rgba(245, 158, 11, 0.2)" />
-            <StatBox title="WFH DAYS" value={isSummaryLoading ? "..." : "0"} subtitle="Work from home" icon={Home} iconColor={colors.primary} bgTint="rgba(139, 92, 246, 0.2)" />
+            <StatBox title="LWP COUNT" value={isSummaryLoading ? "..." : "0"} subtitle="Leave without pay" icon={Calendar} iconColor={colors.primary} bgTint="rgba(139, 92, 246, 0.2)" />
+          </View>
+        </Animated.View>
+
+        {/* Section 2.5: Team Members */}
+        <Animated.View entering={FadeInDown.delay(250).springify()}>
+          <SectionHeader icon={Users} title="Team Members" />
+          <View style={styles.gridRow}>
+            <StatBox title="PRESENT" value="0" subtitle="On duty today" icon={UserCheck} iconColor={colors.success} bgTint="rgba(16, 185, 129, 0.2)" />
+            <StatBox title="ABSENT" value="0" subtitle="Not checked in" icon={UserX} iconColor={colors.error} bgTint="rgba(239, 68, 68, 0.2)" />
+          </View>
+          <View style={styles.gridRow}>
+            <StatBox title="LATE ARRIVALS" value="0" subtitle="Arrived late" icon={Clock} iconColor={colors.warning} bgTint="rgba(245, 158, 11, 0.2)" />
+            <StatBox title="WFH" value="0" subtitle="Remote work" icon={Home} iconColor={colors.primary} bgTint="rgba(139, 92, 246, 0.2)" />
           </View>
         </Animated.View>
 
