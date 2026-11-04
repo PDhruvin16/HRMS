@@ -29,6 +29,7 @@ import {
   Alert,
   StyleSheet,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import moment from 'moment';
 import { Calendar } from 'react-native-calendars';
@@ -53,6 +54,7 @@ import attendanceApi, {
   WFHApprovalRecord,
 } from '../../api/attendanceApi';
 import DatePicker from '../../components/Date';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Tab, STATUS_COLOR, STATUS_BG, ISSUE_COLOR,
   AttendanceCorrectionRequest, AttendanceCorrectionPunch,
@@ -374,8 +376,8 @@ export const WFHApprovalCard = ({
           ) : null}
         </View>
 
-        {/* Actions — only for pending_hr status */}
-        {item.status === 'pending_hr' && (
+        {/* Actions — visible only when canApprove is true */}
+        {Boolean(item.canApprove ?? (item as any)?.can_approve) && (
           <View style={s.approvalActionsRow}>
             <TouchableOpacity
               activeOpacity={0.8}
@@ -535,19 +537,30 @@ export const ModalField = ({
 ═══════════════════════════════════════════════════════════════ */
 
 export const NewRequestModal = ({
-  visible, type, onClose, onSubmit,
+  visible, type, onClose, onSubmit, initialValues,
 }: {
   visible: boolean;
   type: 'WFH' | 'Overtime';
   onClose: () => void;
   onSubmit: (d: any) => void;
+  initialValues?: { fromDate?: string; toDate?: string; hours?: string; reason?: string };
 }) => {
-  const [from,   setFrom]   = useState('');
-  const [to,     setTo]     = useState('');
-  const [hours,  setHours]  = useState('');
-  const [reason, setReason] = useState('');
+  const insets = useSafeAreaInsets();
+  const [from,   setFrom]   = useState(initialValues?.fromDate || '');
+  const [to,     setTo]     = useState(initialValues?.toDate || '');
+  const [hours,  setHours]  = useState(initialValues?.hours || '');
+  const [reason, setReason] = useState(initialValues?.reason || '');
   const [activeDatePicker, setActiveDatePicker] = useState<'start' | 'end' | null>(null);
   const [tempDate, setTempDate] = useState('');
+
+  useEffect(() => {
+    if (visible) {
+      setFrom(initialValues?.fromDate || '');
+      setTo(initialValues?.toDate || '');
+      setHours(initialValues?.hours || '');
+      setReason(initialValues?.reason || '');
+    }
+  }, [visible, initialValues]);
 
   const DateField = ({
     label, value, onPress,
@@ -571,7 +584,7 @@ export const NewRequestModal = ({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <BlurView intensity={40} tint="dark" style={s.modalOverlay}>
-        <View style={s.modalSheet}>
+        <View style={[s.modalSheet, { paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'android' ? normalize(16) : normalize(8)) }]}>
           <View style={s.modalHandle} />
           <View style={s.modalTopRow}>
             <Typography style={s.modalTitle}>New {type} Request</Typography>
@@ -665,10 +678,14 @@ export const NewRequestModal = ({
 ═══════════════════════════════════════════════════════════════ */
 
 export const PunchSequenceModal = ({
-  visible, log, onClose,
+  visible, log, onClose, onAddOvertime,
 }: {
-  visible: boolean; log: AttendanceLog | null; onClose: () => void;
+  visible: boolean;
+  log: AttendanceLog | null;
+  onClose: () => void;
+  onAddOvertime?: (log: AttendanceLog) => void;
 }) => {
+  const insets = useSafeAreaInsets();
   const isToday       = log?.date === getServerMoment().format('YYYY-MM-DD');
   const punches       = log?.punches || [];
   const lastPunch     = punches.length > 0 ? punches[punches.length - 1] : null;
@@ -800,7 +817,15 @@ export const PunchSequenceModal = ({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <BlurView intensity={40} tint="dark" style={s.modalOverlay}>
-        <View style={[s.modalSheet, { maxHeight: '85%' }]}>
+        <View
+          style={[
+            s.modalSheet,
+            {
+              maxHeight: '85%',
+              paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'android' ? normalize(16) : normalize(8)),
+            },
+          ]}
+        >
           <View style={s.modalHandle} />
           <View style={s.modalTopRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(8) }}>
@@ -872,6 +897,56 @@ export const PunchSequenceModal = ({
                   <Typography style={s.detailVal}>{log.status || 'Normal'}</Typography>
                 </View>
               </View>
+              {Boolean(log.canAddOvertime) && (
+                <View style={{ flexDirection: 'row', gap: normalize(8) }}>
+                  <View style={s.detailCell}>
+                    <Typography style={s.detailLbl}>Approved Overtime</Typography>
+                    <Typography
+                      style={[
+                        s.detailVal,
+                        log.approvedOvertime && log.approvedOvertime !== '0:00:00' && { color: colors.success },
+                      ]}
+                    >
+                      {log.approvedOvertime || '0:00:00'}
+                    </Typography>
+                  </View>
+                  <View style={s.detailCell}>
+                    <Typography style={s.detailLbl}>Remaining Overtime</Typography>
+                    <Typography
+                      style={[
+                        s.detailVal,
+                        log.remainingOvertime && log.remainingOvertime !== '0:00:00' && { color: colors.warning },
+                      ]}
+                    >
+                      {log.remainingOvertime || '0:00:00'}
+                    </Typography>
+                  </View>
+                </View>
+              )}
+              {Boolean(log.overtimeStatuses || log.overtimeStatus) && (
+                <View style={{ flexDirection: 'row', gap: normalize(8) }}>
+                  <View style={[s.detailCell, { flex: 1 }]}>
+                    <Typography style={s.detailLbl}>Overtime Status</Typography>
+                    <Typography
+                      style={[
+                        s.detailVal,
+                        {
+                          color:
+                            String(log.overtimeStatus || (Array.isArray(log.overtimeStatuses) ? log.overtimeStatuses[0] : log.overtimeStatuses)).toLowerCase().includes('approved')
+                              ? colors.success
+                              : String(log.overtimeStatus || (Array.isArray(log.overtimeStatuses) ? log.overtimeStatuses[0] : log.overtimeStatuses)).toLowerCase().includes('reject')
+                              ? colors.error
+                              : colors.warning,
+                        },
+                      ]}
+                    >
+                      {Array.isArray(log.overtimeStatuses)
+                        ? log.overtimeStatuses.map((st: string) => st.charAt(0).toUpperCase() + st.slice(1)).join(', ')
+                        : String(log.overtimeStatuses || log.overtimeStatus).charAt(0).toUpperCase() + String(log.overtimeStatuses || log.overtimeStatus).slice(1)}
+                    </Typography>
+                  </View>
+                </View>
+              )}
             </View>
 
             {/* Punches Timeline Section */}
@@ -906,7 +981,39 @@ export const PunchSequenceModal = ({
             )}
           </ScrollView>
 
-          <TouchableOpacity activeOpacity={0.85} onPress={onClose} style={{ marginTop: normalize(16) }}>
+          {/* Conditional Add Overtime Request Button */}
+          {Boolean(log.canAddOvertime) && onAddOvertime && (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => {
+                onClose();
+                onAddOvertime(log);
+              }}
+              style={{ marginTop: normalize(12) }}
+            >
+              <LinearGradient
+                colors={colors.loginButtonBgGradient as any}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingVertical: normalize(11),
+                  paddingHorizontal: normalize(16),
+                  borderRadius: normalize(14),
+                  gap: normalize(6),
+                }}
+              >
+                <Plus size={normalize(15)} color={colors.white} />
+                <Typography style={{ color: colors.white, fontSize: normalize(13), fontWeight: '800' }}>
+                  Add Overtime Request
+                </Typography>
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity activeOpacity={0.85} onPress={onClose} style={{ marginTop: Boolean(log.canAddOvertime) && onAddOvertime ? normalize(8) : normalize(16) }}>
             <View style={s.closeOutlineBtn}>
               <Typography style={s.closeOutlineBtnText}>Close</Typography>
             </View>
@@ -1072,6 +1179,7 @@ export const CorrectionDetailsModal = ({
   item: AttendanceCorrectionRequest | null;
   onClose: () => void;
 }) => {
+  const insets = useSafeAreaInsets();
   const formattedDateHeader = useMemo(() => {
     if (!item?.date) return '';
     const m = moment(item.date);
@@ -1155,6 +1263,7 @@ export const CorrectionDetailsModal = ({
             borderTopLeftRadius: normalize(24),
             borderTopRightRadius: normalize(24),
             padding: normalize(20),
+            paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'android' ? normalize(16) : normalize(8)),
             height: '82%',
             maxHeight: '88%',
             shadowColor: '#000',
@@ -1426,6 +1535,7 @@ export const CorrectionReviewModal = ({
   onApprove?: (item: AttendanceCorrectionRequest) => void;
   onReject?: (item: AttendanceCorrectionRequest) => void;
 }) => {
+  const insets = useSafeAreaInsets();
   const [existingPunches, setExistingPunches] = useState<AttendanceCorrectionPunch[]>([]);
   const [isLoadingPunches, setIsLoadingPunches] = useState<boolean>(false);
 
@@ -1593,6 +1703,7 @@ export const CorrectionReviewModal = ({
             borderTopLeftRadius: normalize(24),
             borderTopRightRadius: normalize(24),
             padding: normalize(20),
+            paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'android' ? normalize(16) : normalize(8)),
             height: '82%',
             maxHeight: '88%',
             shadowColor: '#000',
@@ -1824,10 +1935,12 @@ export const NewCorrectionModal = ({
   visible,
   onClose,
   onSubmit,
+  isSubmitting = false,
 }: {
   visible: boolean;
   onClose: () => void;
   onSubmit: (data: { date: string; punches: AttendanceCorrectionPunch[]; reason: string }) => void;
+  isSubmitting?: boolean;
 }) => {
   const [selectedDate, setSelectedDate] = useState<string>(() => moment().format('DD/MM/YYYY'));
   const [reason, setReason] = useState<string>('');
@@ -1843,6 +1956,16 @@ export const NewCorrectionModal = ({
   const [selectedHour, setSelectedHour] = useState<string>('09');
   const [selectedMin, setSelectedMin] = useState<string>('00');
   const [selectedMeridiem, setSelectedMeridiem] = useState<'AM' | 'PM'>('AM');
+
+  // Reset fields when modal is opened fresh
+  useEffect(() => {
+    if (visible) {
+      setSelectedDate(moment().format('DD/MM/YYYY'));
+      setReason('');
+      setPunchType('IN');
+      setPunchTime('09:00 AM');
+    }
+  }, [visible]);
 
   // Fetch punches via GET API when selectedDate changes or modal opens
   useEffect(() => {
@@ -2183,41 +2306,67 @@ export const NewCorrectionModal = ({
                 style={{
                   fontSize: normalize(11),
                   fontWeight: '700',
-                  color: reason.length < 5 ? '#D97706' : colors.success,
+                  color: reason.trim().length < 5 ? '#D97706' : colors.success,
                   marginTop: normalize(4),
                 }}
               >
-                Min 5 characters required ({reason.length}/5)
+                Min 5 characters required ({reason.trim().length}/5)
               </Typography>
             </View>
+
+            {/* Validation alert if no punches */}
+            {punches.length === 0 && !isLoadingPunches && (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: normalize(8),
+                  backgroundColor: '#FEF3C7',
+                  borderWidth: 1,
+                  borderColor: '#FDE68A',
+                  padding: normalize(10),
+                  borderRadius: normalize(10),
+                  marginBottom: normalize(10),
+                }}
+              >
+                <AlertTriangle size={normalize(16)} color="#D97706" />
+                <Typography style={{ fontSize: normalize(12), color: '#92400E', fontWeight: '600', flex: 1 }}>
+                  At least 1 punch entry is required before submitting a correction.
+                </Typography>
+              </View>
+            )}
           </ScrollView>
 
           {/* FIXED Footer Action Buttons at Bottom */}
           <View style={s.formFooterRow}>
-            <TouchableOpacity activeOpacity={0.8} style={s.formCancelBtn} onPress={onClose}>
+            <TouchableOpacity activeOpacity={0.8} style={s.formCancelBtn} onPress={onClose} disabled={isSubmitting}>
               <Typography style={s.formCancelBtnText}>Cancel</Typography>
             </TouchableOpacity>
 
             <TouchableOpacity
               activeOpacity={0.85}
-              disabled={reason.length < 5 || !selectedDate}
+              disabled={reason.trim().length < 5 || !selectedDate || punches.length === 0 || isSubmitting}
               style={[
                 s.formSubmitBtnGrad,
-                (reason.length < 5 || !selectedDate) && s.formSubmitBtnDisabled,
+                (reason.trim().length < 5 || !selectedDate || punches.length === 0 || isSubmitting) && s.formSubmitBtnDisabled,
               ]}
               onPress={async () => {
+                if (reason.trim().length < 5 || !selectedDate || punches.length === 0 || isSubmitting) return;
                 await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                onSubmit({ date: selectedDate, punches, reason });
-                onClose();
+                onSubmit({ date: selectedDate, punches, reason: reason.trim() });
               }}
             >
               <LinearGradient
-                colors={(reason.length < 5 || !selectedDate) ? ['#94A3B8', '#CBD5E1'] : colors.loginButtonBgGradient as any}
+                colors={(reason.trim().length < 5 || !selectedDate || punches.length === 0 || isSubmitting) ? ['#94A3B8', '#CBD5E1'] : colors.loginButtonBgGradient as any}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={s.formSubmitBtn}
               >
-                <Typography style={s.formSubmitBtnText}>Submit Correction</Typography>
+                {isSubmitting ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <Typography style={s.formSubmitBtnText}>Submit Correction</Typography>
+                )}
               </LinearGradient>
             </TouchableOpacity>
           </View>

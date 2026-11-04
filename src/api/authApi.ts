@@ -18,9 +18,11 @@ export const authApi = {
     return response;
   },
 
-  refreshToken: async (refreshToken: string): Promise<RefreshTokenResponse> => {
+  refreshToken: async (refreshToken: string): Promise<any> => {
     const response = await AuthClient.post<any>(API_ENDPOINTS.AUTH.REFRESH_TOKEN, {
+      refreshToken: refreshToken,
       refresh: refreshToken,
+      refresh_token: refreshToken,
     });
     return response;
   },

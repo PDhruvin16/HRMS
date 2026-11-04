@@ -49,9 +49,11 @@ export const storage = {
   // ─── Async helpers ────────────────────────────────────────────────────────
 
   async setStringAsync(key: StorageKey, value: string): Promise<void> {
-    await AsyncStorage.setItem(key, value);
     if (key === StorageKeys.accessToken) _accessToken = value;
     if (key === StorageKeys.refreshToken) _refreshToken = value;
+    if (value != null) {
+      await AsyncStorage.setItem(key, String(value));
+    }
   },
 
   async getStringAsync(key: StorageKey): Promise<string | undefined> {
@@ -60,9 +62,11 @@ export const storage = {
   },
 
   async setJSONAsync<T>(key: StorageKey, value: T): Promise<void> {
-    await AsyncStorage.setItem(key, JSON.stringify(value));
     if (key === StorageKeys.user) _user = value;
-    if (key === StorageKeys.permissions) _permissions = value as any;
+    if (key === StorageKeys.permissions) _permissions = (value as any) || [];
+    if (value !== undefined) {
+      await AsyncStorage.setItem(key, JSON.stringify(value));
+    }
   },
 
   async getJSONAsync<T>(key: StorageKey): Promise<T | null> {
@@ -71,19 +75,19 @@ export const storage = {
   },
 
   async remove(key: StorageKey): Promise<void> {
-    await AsyncStorage.removeItem(key);
     if (key === StorageKeys.accessToken) _accessToken = undefined;
     if (key === StorageKeys.refreshToken) _refreshToken = undefined;
     if (key === StorageKeys.user) _user = null;
     if (key === StorageKeys.permissions) _permissions = [];
+    await AsyncStorage.removeItem(key);
   },
 
   async clear(): Promise<void> {
-    await AsyncStorage.clear();
     _accessToken = undefined;
     _refreshToken = undefined;
     _user = null;
     _permissions = [];
+    await AsyncStorage.clear();
   },
 
   // ─── Sync Accessors ───────────────────────────────────────────────────────
@@ -110,9 +114,17 @@ export const storage = {
 
   // ─── Setter helper routines ───────────────────────────────────────────────
 
-  async setTokens(tokens: { accessToken: string; refreshToken: string }): Promise<void> {
-    await this.setStringAsync(StorageKeys.accessToken, tokens.accessToken);
-    await this.setStringAsync(StorageKeys.refreshToken, tokens.refreshToken);
+  async setTokens(tokens: { accessToken?: string; refreshToken?: string; access?: string; refresh?: string }): Promise<void> {
+    const access = tokens.accessToken || tokens.access;
+    const refresh = tokens.refreshToken || tokens.refresh;
+    if (access) {
+      _accessToken = access;
+      await AsyncStorage.setItem(StorageKeys.accessToken, access);
+    }
+    if (refresh) {
+      _refreshToken = refresh;
+      await AsyncStorage.setItem(StorageKeys.refreshToken, refresh);
+    }
   },
 
   async clearAuth(): Promise<void> {
@@ -131,7 +143,9 @@ export const storage = {
 
   async setUser<T extends object = Record<string, unknown>>(user: T): Promise<void> {
     _user = user;
-    await AsyncStorage.setItem(StorageKeys.user, JSON.stringify(user));
+    if (user != null) {
+      await AsyncStorage.setItem(StorageKeys.user, JSON.stringify(user));
+    }
   },
 
   async getPersistedAuthToken(): Promise<string | undefined> {

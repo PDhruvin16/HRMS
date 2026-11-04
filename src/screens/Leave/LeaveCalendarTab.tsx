@@ -914,6 +914,7 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: normalize(20),
     paddingVertical: normalize(16),
+    paddingBottom: normalize(32),
     borderTopWidth: 1,
     borderTopColor: 'rgba(0,0,0,0.06)',
     backgroundColor: colors.white,

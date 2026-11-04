@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React from 'react';
-import { Text, TextStyle, TextProps } from 'react-native';
+import { Text, TextStyle, TextProps, StyleSheet } from 'react-native';
 import colors from '../../theme/color';
 import { FONT_FAMILY, FONT_SIZE, LETTER_SPACING, LINE_HEIGHT } from '../../constants';
 
@@ -63,17 +63,34 @@ export const Typography: React.FC<TypographyProps> = ({
   const themeColors = colors;
   const variantStyle = getVariantStyle(variant, colors as unknown as Record<string, unknown>);
 
+  const flatStyle = (StyleSheet.flatten(style) || {}) as TextStyle;
+  const effectiveFontSize = size !== undefined ? rs(size) : (flatStyle.fontSize !== undefined ? flatStyle.fontSize : variantStyle.fontSize);
+
+  // Compute safe lineHeight to prevent text and numbers from being clipped on iOS
+  let effectiveLineHeight: number | undefined;
+  if (lineHeight !== undefined) {
+    effectiveLineHeight = rs(lineHeight);
+  } else if (flatStyle.lineHeight !== undefined) {
+    effectiveLineHeight = flatStyle.lineHeight;
+  } else if (size !== undefined || (flatStyle.fontSize !== undefined && flatStyle.fontSize !== variantStyle.fontSize)) {
+    // When custom fontSize is passed without explicit lineHeight, ensure lineHeight scales safely
+    effectiveLineHeight = Math.ceil(effectiveFontSize * 1.28);
+  } else {
+    effectiveLineHeight = variantStyle.lineHeight;
+  }
+
   const customStyle: TextStyle = {
     ...variantStyle,
     color: color || variantStyle.color || themeColors.text.primary,
     textAlign: align,
     fontWeight: weight || variantStyle.fontWeight,
-    fontSize: size ? rs(size) : variantStyle.fontSize,
-    lineHeight: lineHeight ? rs(lineHeight) : variantStyle.lineHeight,
+    fontSize: effectiveFontSize,
+    lineHeight: effectiveLineHeight,
     letterSpacing: letterSpacing !== undefined ? rs(letterSpacing) : variantStyle.letterSpacing,
     textTransform: transform,
     textDecorationLine: decoration,
     fontStyle: italic ? 'italic' : 'normal',
+    includeFontPadding: false,
   };
 
   return (

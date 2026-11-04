@@ -39,10 +39,10 @@ const s = StyleSheet.create({
   teamStatCardHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: normalize(8) },
   teamStatLabel:       { fontSize: normalize(13), fontWeight: '800', color: colors.black },
   teamStatIconWrap:    { width: normalize(34), height: normalize(34), borderRadius: normalize(10), alignItems: 'center', justifyContent: 'center' },
-  teamStatValue:       { fontSize: normalize(22), fontWeight: '900', color: colors.black, marginBottom: normalize(2) },
+  teamStatValue:       { fontSize: normalize(22), fontWeight: '900', lineHeight: normalize(28), color: colors.black, marginBottom: normalize(2) },
   teamStatSub:         { fontSize: normalize(11), color: colors.text.secondary, fontWeight: '700' },
   statIconWrap:        { width: normalize(42), height: normalize(42), borderRadius: normalize(12), alignItems: 'center', justifyContent: 'center', marginBottom: normalize(10) },
-  statValue:           { fontSize: normalize(17), fontWeight: '900', marginBottom: normalize(4), textAlign: 'center', width: '100%' },
+  statValue:           { fontSize: normalize(17), fontWeight: '900', lineHeight: normalize(22), marginBottom: normalize(4), textAlign: 'center', width: '100%' },
   statLabel:           { fontSize: normalize(11), color: colors.text.secondary, fontWeight: '800', textAlign: 'center' },
   calendarCard:    { borderRadius: normalize(20), padding: normalize(14), marginBottom: normalize(16), borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.5)', overflow: 'hidden' },
   datePickerGrid:  { flexDirection: 'row', gap: normalize(10) },
@@ -125,11 +125,11 @@ const s = StyleSheet.create({
   expandVal:       { fontSize: normalize(16), fontWeight: '800' },
 
   /* ── Status count strip ──────────────────────────────────── */
-  countStrip:     { borderRadius: normalize(22), padding: normalize(18), flexDirection: 'row', alignItems: 'center', marginBottom: normalize(16), borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.45)', overflow: 'hidden' },
-  countStripItem: { flex: 1, alignItems: 'center' },
+  countStrip:     { borderRadius: normalize(22), paddingVertical: normalize(16), paddingHorizontal: normalize(14), flexDirection: 'row', alignItems: 'center', marginBottom: normalize(16), borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.45)', overflow: 'hidden' },
+  countStripItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   countStripSep:  { width: 1.5, height: normalize(40), backgroundColor: 'rgba(0,0,0,0.08)' },
-  countNum:       { fontSize: normalize(28), fontWeight: '800' },
-  countLbl:       { fontSize: normalize(12), color: colors.text.secondary, fontWeight: '700', marginTop: normalize(4) },
+  countNum:       { fontSize: normalize(28), fontWeight: '800', lineHeight: normalize(34), textAlign: 'center' },
+  countLbl:       { fontSize: normalize(12), color: colors.text.secondary, fontWeight: '700', marginTop: normalize(4), textAlign: 'center' },
 
   /* ── Request cards ───────────────────────────────────────── */
   reqCard:      { borderRadius: normalize(20), padding: normalize(16), marginBottom: normalize(14), borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.5)', overflow: 'hidden' },
@@ -283,7 +283,7 @@ const s = StyleSheet.create({
 
   /* ── Digital Time Display Banner ─────────────────────────── */
   digitalTimeBanner:  { backgroundColor: '#3730A3', borderRadius: normalize(16), paddingVertical: normalize(14), paddingHorizontal: normalize(16), alignItems: 'center', justifyContent: 'center', marginBottom: normalize(16), shadowColor: '#3730A3', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 },
-  digitalTimeText:    { fontSize: normalize(26), fontWeight: '900', color: colors.white, letterSpacing: 1 },
+  digitalTimeText:    { fontSize: normalize(26), fontWeight: '900', lineHeight: normalize(32), color: colors.white, letterSpacing: 1 },
   digitalTimeSub:     { fontSize: normalize(10), fontWeight: '800', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: normalize(2) },
 
   /* ── Footer Buttons ──────────────────────────────────────── */

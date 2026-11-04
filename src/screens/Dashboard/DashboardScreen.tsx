@@ -437,6 +437,7 @@ const styles = StyleSheet.create({
     color: colors.black,
     fontSize: normalize(22),
     fontWeight: '900',
+    lineHeight: normalize(28),
     letterSpacing: -0.5,
   },
   gridCardSubtitle: {

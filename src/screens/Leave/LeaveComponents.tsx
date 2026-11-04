@@ -21,7 +21,6 @@ import { Calendar } from 'react-native-calendars';
 import moment from 'moment';
 import colors from '../../theme/color';
 import { Typography } from '../../components/Typography';
-import SelectDropdown from '../../components/Dropdown';
 import { UICoreDropdown, DropdownOption } from '../../components/UICore/UICoreDropdown';
 import DatePicker from '../../components/Date';
 import { normalize } from '../../utils/responsive';
@@ -346,7 +345,7 @@ export const LeaveApprovalCard: React.FC<{
           )}
         </View>
 
-        {isPending && (
+        {Boolean(req.canApprove ?? (req as any)?.can_approve) && (
           <View
             style={{
               flexDirection: 'row',
@@ -737,15 +736,16 @@ export const ApplyLeaveModal: React.FC<{
               </View>
               <View style={[s.inputGroup, { flex: 1 }]}>
                 {isSameDate ? (
-                  <SelectDropdown
+                  <UICoreDropdown
                     label="Day Type"
+                    placeholder="Select Day Type..."
                     options={[
-                      { id: 'full_day', label: 'Full Day' },
-                      { id: 'first_half', label: 'First Half' },
-                      { id: 'second_half', label: 'Second Half' },
+                      { value: 'full_day', label: 'Full Day' },
+                      { value: 'first_half', label: 'First Half' },
+                      { value: 'second_half', label: 'Second Half' },
                     ]}
                     value={dayType}
-                    onChange={(val) => setDayType(val as string)}
+                    onSelect={(opt) => setDayType(opt.value)}
                   />
                 ) : (
                   <>

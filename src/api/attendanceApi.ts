@@ -25,6 +25,10 @@ export interface AttendanceLog {
   workingHours: string;     // "2:57:02"
   targetHours: string;      // "8:30:00"
   overtime: string;         // "0:00:00"
+  approvedOvertime?: string;// "0:00:00"
+  remainingOvertime?: string;// "0:00:00"
+  approvedOvertimeMinutes?: number;
+  remainingOvertimeMinutes?: number;
   breakTime: string;        // "1:13:56"
   effectiveHours: string;   // "2:57:02"
   totalTimeFirstToLast?: string; // "8:15:00"
@@ -34,6 +38,9 @@ export interface AttendanceLog {
   rawPunchIn?: string | null;
   rawPunchOut?: string | null;
   leaveType?: string | null;
+  canAddOvertime?: boolean;
+  overtimeStatuses?: string[] | string | null;
+  overtimeStatus?: string | null;
 }
 
 export interface PunchRecord {
@@ -90,6 +97,15 @@ export interface ServerAttendanceLog {
   hasSequenceIssue: boolean;
   targetHours: string;
   leaveType?: string | null;
+  canAddOvertime?: boolean;
+  approvedOvertimeMinutes?: number;
+  remainingOvertimeMinutes?: number;
+  approved_overtime_minutes?: number;
+  remaining_overtime_minutes?: number;
+  overtimeStatuses?: string[] | string | null;
+  overtimeStatus?: string | null;
+  overtime_statuses?: string[] | string | null;
+  overtime_status?: string | null;
 }
 
 export interface ServerAttendanceSummary {
@@ -186,6 +202,16 @@ const serverSummaryToUi = (s: ServerAttendanceSummary): AttendanceSummary => ({
   todayLeavingTime: '--:--',
 });
 
+/** Converts minutes to a human-readable "HH:mm:ss" or "H:mm:ss" string */
+const minutesToHms = (mins: number | string | undefined | null): string => {
+  if (mins === undefined || mins === null || mins === '') return '0:00:00';
+  if (typeof mins === 'string' && mins.includes(':')) return mins;
+  const num = typeof mins === 'string' ? parseFloat(mins) : mins;
+  if (isNaN(num) || num <= 0) return '0:00:00';
+  const totalSecs = Math.round(num * 60);
+  return secondsToHms(totalSecs);
+};
+
 /** Formats decimal hours string (e.g. "8.50") to "H:mm:ss" string (e.g. "8:30:00") */
 const decimalHoursToHms = (decimalStr: string): string => {
   const num = parseFloat(decimalStr);
@@ -253,6 +279,49 @@ const mapServerLog = (log: ServerAttendanceLog): AttendanceLog => {
     rawPunchIn:   log.punchIn,
     rawPunchOut:  log.punchOut,
     leaveType:    log.leaveType,
+    canAddOvertime: Boolean(log.canAddOvertime || (log as any)?.can_add_overtime || (log.dayMetrics as any)?.canAddOvertime),
+    approvedOvertime: minutesToHms(
+      log.approvedOvertimeMinutes ??
+      (log as any)?.approved_overtime_minutes ??
+      (dm as any)?.approvedOvertimeMinutes ??
+      (dm as any)?.approved_overtime_minutes ??
+      0
+    ),
+    remainingOvertime: minutesToHms(
+      log.remainingOvertimeMinutes ??
+      (log as any)?.remaining_overtime_minutes ??
+      (dm as any)?.remainingOvertimeMinutes ??
+      (dm as any)?.remaining_overtime_minutes ??
+      0
+    ),
+    approvedOvertimeMinutes: Number(
+      log.approvedOvertimeMinutes ??
+      (log as any)?.approved_overtime_minutes ??
+      (dm as any)?.approvedOvertimeMinutes ??
+      (dm as any)?.approved_overtime_minutes ??
+      0
+    ),
+    remainingOvertimeMinutes: Number(
+      log.remainingOvertimeMinutes ??
+      (log as any)?.remaining_overtime_minutes ??
+      (dm as any)?.remainingOvertimeMinutes ??
+      (dm as any)?.remaining_overtime_minutes ??
+      0
+    ),
+    overtimeStatuses:
+      log.overtimeStatuses ??
+      (log as any)?.overtime_statuses ??
+      (log as any)?.overtimeStatus ??
+      (log as any)?.overtime_status ??
+      (dm as any)?.overtimeStatuses ??
+      (dm as any)?.overtimeStatus ??
+      null,
+    overtimeStatus:
+      (typeof (log.overtimeStatuses ?? (log as any)?.overtimeStatus) === 'string'
+        ? (log.overtimeStatuses ?? (log as any)?.overtimeStatus)
+        : Array.isArray(log.overtimeStatuses) && log.overtimeStatuses.length > 0
+        ? log.overtimeStatuses[0]
+        : null) || null,
   };
 };
 
@@ -391,7 +460,7 @@ export const attendanceApi = {
         totalOvertime:  '00:17:27',
         totalBreak:     '09:15:55',
         totalIncomplete:'15:40:41',
-        todayLeavingTime: '18:44:12',
+        todayLeavingTime: '06:44:12 PM',
       };
     }
   },
@@ -567,7 +636,14 @@ export const attendanceApi = {
   getWFHApprovals: async (): Promise<WFHApprovalRecord[]> => {
     try {
       const response = await ApiClient.get<any>('/attendance/manual/pending');
-      return response?.data || response || [];
+      const rawList: any[] = response?.data || response || [];
+      if (Array.isArray(rawList)) {
+        return rawList.map((item: any) => ({
+          ...item,
+          canApprove: Boolean(item.canApprove ?? item.can_approve),
+        }));
+      }
+      return [];
     } catch (error: any) {
       if (__DEV__) {
         console.error('[DEBUG] getWFHApprovals API call failed:', getApiErrorMessage(error));

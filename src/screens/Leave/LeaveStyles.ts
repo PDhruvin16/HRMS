@@ -72,7 +72,7 @@ export const s = StyleSheet.create({
   statScroll: { paddingHorizontal: 0, paddingBottom: normalize(8), paddingTop: normalize(2), gap: normalize(10) },
   statCard: { borderRadius: normalize(16), padding: normalize(12), alignItems: 'center', width: normalize(100), borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.5)', overflow: 'hidden' },
   statIconWrap: { width: normalize(32), height: normalize(32), borderRadius: normalize(16), alignItems: 'center', justifyContent: 'center', marginBottom: normalize(6) },
-  statValue: { fontSize: normalize(18), fontWeight: '800', marginBottom: normalize(2) },
+  statValue: { fontSize: normalize(18), fontWeight: '800', lineHeight: normalize(24), marginBottom: normalize(2), textAlign: 'center' },
   statLabel: { fontSize: normalize(10), color: colors.text.muted, fontWeight: '600', textAlign: 'center', lineHeight: normalize(13) },
 
   // Approvals Analytics Cards (Matching Web Design Reference)
@@ -91,6 +91,7 @@ export const s = StyleSheet.create({
   approvalStatVal: {
     fontSize: normalize(22),
     fontWeight: '900',
+    lineHeight: normalize(28),
     marginTop: normalize(4),
   },
   approvalStatSub: {
@@ -110,7 +111,7 @@ export const s = StyleSheet.create({
   bcTags: { flexDirection: 'row', gap: normalize(6) },
   bcTag: { paddingHorizontal: normalize(6), paddingVertical: normalize(2), backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: normalize(4) },
   bcTagText: { fontSize: normalize(10), fontWeight: '700', color: colors.text.primary },
-  bcAvailable: { fontSize: normalize(24), fontWeight: '800' },
+  bcAvailable: { fontSize: normalize(24), fontWeight: '800', lineHeight: normalize(30) },
   bcAvailableSub: { fontSize: normalize(10), fontWeight: '700', color: colors.text.muted, marginTop: normalize(2), letterSpacing: 0.5 },
   
   bcMetricsContainer: { backgroundColor: '#F8FAFC', borderRadius: normalize(12), padding: normalize(12) },
@@ -119,7 +120,7 @@ export const s = StyleSheet.create({
   bcMetric: { alignItems: 'center', flex: 1, paddingVertical: normalize(6) },
   bcMetricHighlight: { borderRadius: normalize(8) },
   bcMetricTitle: { fontSize: normalize(9), fontWeight: '700', color: colors.text.muted, marginBottom: normalize(4), letterSpacing: 0.5 },
-  bcMetricVal: { fontSize: normalize(13), fontWeight: '700', color: colors.black },
+  bcMetricVal: { fontSize: normalize(13), fontWeight: '700', lineHeight: normalize(18), color: colors.black },
 
   // Activity Card
   recentActivityRow: { marginTop: normalize(16), marginBottom: normalize(12) },
@@ -146,7 +147,7 @@ export const s = StyleSheet.create({
   mgtStatCard: { width: (screenWidth - normalize(44)) / 2, backgroundColor: colors.white, padding: normalize(16), borderRadius: normalize(12), borderWidth: 1 },
   mgtStatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: normalize(12) },
   mgtStatTitle: { fontSize: normalize(10), fontWeight: '800', color: colors.primary, letterSpacing: 0.5 },
-  mgtStatVal: { fontSize: normalize(28), fontWeight: '800', color: colors.black },
+  mgtStatVal: { fontSize: normalize(28), fontWeight: '800', lineHeight: normalize(34), color: colors.black },
   searchRow: { flexDirection: 'row', gap: normalize(10), alignItems: 'center', marginBottom: normalize(12) },
   activeChip: { flexDirection: 'row', alignItems: 'center', gap: normalize(6), backgroundColor: 'rgba(59, 130, 246, 0.08)', paddingHorizontal: normalize(12), paddingVertical: normalize(6), borderRadius: normalize(20), borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.2)' },
   activeChipText: { fontSize: normalize(11), color: colors.primary, fontWeight: '700' },
@@ -239,7 +240,7 @@ export const s = StyleSheet.create({
   uploadTitle: { fontSize: normalize(14), fontWeight: '600', color: colors.primary, marginTop: normalize(12), marginBottom: normalize(4) },
   uploadSub: { fontSize: normalize(12), color: colors.text.muted },
 
-  modalFooter: { flexDirection: 'row', gap: normalize(12), padding: normalize(24), paddingTop: normalize(16), borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
+  modalFooter: { flexDirection: 'row', gap: normalize(12), padding: normalize(24), paddingTop: normalize(16), paddingBottom: normalize(32), borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
   cancelBtn: { flex: 1, height: normalize(48), borderRadius: normalize(12), backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center' },
   cancelBtnText: { fontSize: normalize(15), fontWeight: '600', color: colors.text.primary },
   submitBtn: { flex: 1, height: normalize(48), borderRadius: normalize(12), backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },

@@ -21,28 +21,40 @@ export const useAuth = () => {
     },
 
     mutationFn: async ({ email, password }) => {
-      const response = await authApi.login({ email, password });
+      const res = await authApi.login({ email, password });
+      const payload = (res as any)?.data || res;
+      const accessToken = payload?.accessToken || payload?.access || (res as any)?.accessToken;
+      const refreshToken = payload?.refreshToken || payload?.refresh || (res as any)?.refreshToken;
+      const user = payload?.user || (res as any)?.user;
 
-      if (!response.success) {
-        throw new Error(response.message || 'Login failed');
+      if (!accessToken) {
+        throw new Error((res as any)?.message || 'Login failed: missing access token');
       }
 
-      if (!response.data) {
-        throw new Error('Login failed: empty response');
+      // Persist tokens synchronously in memory and asynchronously to storage
+      await storage.setTokens({ accessToken, refreshToken });
+
+      if (user) {
+        await storage.setUser(user);
       }
 
-      // Persist tokens in MMKV/AsyncStorage for axios interceptor
-      storage.setTokens({ accessToken: response.data.accessToken, refreshToken: response.data.refreshToken });
-
-      // Store permissions in Redux
-      if (response.data.user && response.data.user.permissions) {
-        dispatch(setPermissions(response.data.user.permissions));
-      } else {
-        dispatch(setPermissions([]));
+      // Store permissions in Redux & Storage
+      const permissions = user?.permissions || [];
+      dispatch(setPermissions(permissions));
+      try {
+        await storage.setJSONAsync(StorageKeys.permissions, permissions);
+      } catch (e) {
+        console.warn('Failed to persist permissions:', e);
       }
 
       // Store in Redux (handles isAuthenticated flag)
-      dispatch(setCredentials(response.data));
+      dispatch(
+        setCredentials({
+          accessToken,
+          refreshToken: refreshToken || '',
+          user: user || {},
+        }),
+      );
     },
 
     onError: (error: Error) => {

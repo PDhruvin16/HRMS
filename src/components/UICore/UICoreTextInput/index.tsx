@@ -27,6 +27,7 @@ export interface UICoreTextInputProps extends TextInputProps {
   onRightIconPress?: () => void;
   forceFocus?: boolean;
   required?: boolean;
+  disabled?: boolean;
 }
 
 export const UICoreTextInput: React.FC<UICoreTextInputProps> = ({
@@ -43,6 +44,7 @@ export const UICoreTextInput: React.FC<UICoreTextInputProps> = ({
   style,
   forceFocus,
   required,
+  disabled,
   ...props
 }) => {
   const [isFocused, setIsFocused] = useState(false);
@@ -62,7 +64,7 @@ export const UICoreTextInput: React.FC<UICoreTextInputProps> = ({
   };
 
   const isActuallyFocused = isFocused || forceFocus;
-  const isDisabled = props.editable === false;
+  const isDisabled = disabled !== undefined ? disabled : props.editable === false;
 
   const borderColor = error
     ? colors.error

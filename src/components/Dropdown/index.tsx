@@ -207,11 +207,20 @@ const SelectDropdown: FC<SelectDropdownProps> = ({
           if (inputRef.current) {
             inputRef.current.measureInWindow(
               (x: number, y: number, width: number, height: number) => {
-                // On Android inside a statusBarTranslucent Modal, measureInWindow
-                // already returns absolute screen coords (from top of screen,
-                // including status bar). Do NOT add StatusBar.currentHeight again.
-                setDropdownLayout({ x, y, width, height });
-                setOpen(true);
+                if (width > 0) {
+                  setDropdownLayout({ x, y, width, height });
+                  setOpen(true);
+                } else {
+                  inputRef.current?.measure((_x, _y, w, h, px, py) => {
+                    setDropdownLayout({
+                      x: px || 0,
+                      y: py || 0,
+                      width: w || Dimensions.get('window').width * 0.9,
+                      height: h || moderateScale(48),
+                    });
+                    setOpen(true);
+                  });
+                }
               },
             );
           } else {

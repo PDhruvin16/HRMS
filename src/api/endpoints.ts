@@ -16,7 +16,7 @@ export const API_ENDPOINTS = {
   AUTH: {
     LOGIN: '/auth/login',
     REGISTER: '/user/register/',
-    REFRESH_TOKEN: '/auth/refresh/',
+    REFRESH_TOKEN: '/auth/refresh',
     CHANGE_PASSWORD: (() => {
       const basePath = '/user/change_password/';
       return {

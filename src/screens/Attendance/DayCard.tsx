@@ -7,9 +7,10 @@ import {
 } from 'react-native';
 import moment from 'moment';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import {
-  Clock, AlertTriangle, Hourglass, Zap, Activity, ChevronRight,
+  Clock, AlertTriangle, Hourglass, Zap, Activity, ChevronRight, Plus,
 } from 'lucide-react-native';
 import { normalize } from '../../utils/responsive';
 import colors from '../../theme/color';
@@ -53,6 +54,31 @@ const StatusBadge = ({ status }: { status: string }) => {
   );
 };
 
+const OT_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  approved: { label: 'OT Approved', color: colors.success, bg: 'rgba(16, 185, 129, 0.12)', border: 'rgba(16, 185, 129, 0.25)' },
+  pending:  { label: 'OT Pending',  color: colors.warning, bg: 'rgba(245, 158, 11, 0.12)', border: 'rgba(245, 158, 11, 0.25)' },
+  rejected: { label: 'OT Rejected', color: colors.error,   bg: 'rgba(239, 68, 68, 0.12)',  border: 'rgba(239, 68, 68, 0.25)' },
+};
+
+const OvertimeStatusPill = ({ status }: { status: string }) => {
+  if (!status) return null;
+  const key = String(status).trim().toLowerCase();
+  const conf = OT_STATUS_CONFIG[key] || {
+    label: `OT: ${String(status).charAt(0).toUpperCase() + String(status).slice(1)}`,
+    color: colors.primary,
+    bg: colors.primary + '15',
+    border: colors.primary + '30',
+  };
+  return (
+    <View style={[s.otStatusPill, { backgroundColor: conf.bg, borderColor: conf.border }]}>
+      <Zap size={normalize(10)} color={conf.color} />
+      <Typography style={[s.otStatusPillText, { color: conf.color }]}>
+        {conf.label}
+      </Typography>
+    </View>
+  );
+};
+
 const MicroIssueTag = ({ label }: { label: string }) => {
   const conf = ISSUE_CONFIG[label] || { label, icon: AlertTriangle, color: colors.text.muted };
   const IconComp = conf.icon;
@@ -63,7 +89,11 @@ const MicroIssueTag = ({ label }: { label: string }) => {
   );
 };
 
-export const DayCard = ({ log, onPress, index }: { log: any; onPress: () => void; index: number }) => {
+export const DayCard = ({
+  log, onPress, index, onAddOvertime,
+}: {
+  log: any; onPress: () => void; index: number; onAddOvertime?: (log: any) => void;
+}) => {
   const hasContent = Boolean(log.checkIn || log.checkOut || log.workingHours !== '0:00:00' || log.firstPunchIn || log.rawPunchIn);
   const isToday = log.date === getServerMoment().format('YYYY-MM-DD');
   const lastPunch = log.punches && log.punches.length > 0 ? log.punches[log.punches.length - 1] : null;
@@ -198,6 +228,18 @@ export const DayCard = ({ log, onPress, index }: { log: any; onPress: () => void
                   <Typography style={s.leavePillText}>🌴 {log.leaveType}</Typography>
                 </View>
               )}
+              {/* Overtime Status Badges */}
+              {log.overtimeStatuses ? (
+                Array.isArray(log.overtimeStatuses) ? (
+                  log.overtimeStatuses.map((st: string, i: number) => (
+                    <OvertimeStatusPill key={`ot-status-${st}-${i}`} status={st} />
+                  ))
+                ) : (
+                  <OvertimeStatusPill status={log.overtimeStatuses} />
+                )
+              ) : log.overtimeStatus ? (
+                <OvertimeStatusPill status={log.overtimeStatus} />
+              ) : null}
             </View>
             <View style={s.headerRight}>
               {log.issues?.map((iss: string) => <MicroIssueTag key={iss} label={iss} />)}
@@ -207,36 +249,90 @@ export const DayCard = ({ log, onPress, index }: { log: any; onPress: () => void
 
           {/* Unified Compact Metrics Strip */}
           {hasContent && (
-            <View style={s.metricsStrip}>
-              <View style={s.metricCol}>
-                <Typography style={s.metricLbl}>IN</Typography>
-                <Typography style={s.metricVal} numberOfLines={1}>{log.firstPunchIn || '--:--'}</Typography>
+            <View style={s.metricsContainer}>
+              <View style={s.metricsStrip}>
+                <View style={s.metricCol}>
+                  <Typography style={s.metricLbl}>IN</Typography>
+                  <Typography style={s.metricVal} numberOfLines={1}>{log.firstPunchIn || '--:--'}</Typography>
+                </View>
+                <View style={s.metricDivider} />
+                <View style={s.metricCol}>
+                  <Typography style={s.metricLbl}>OUT</Typography>
+                  <Typography style={s.metricVal} numberOfLines={1}>{log.lastPunchOut || '--:--'}</Typography>
+                </View>
+                <View style={s.metricDivider} />
+                <View style={s.metricCol}>
+                  <Typography style={s.metricLbl}>WORKED</Typography>
+                  <Typography style={[s.metricVal, { color: colors.primary }]} numberOfLines={1}>
+                    {isOngoing ? liveWorked : (log.workingHours || '--:--:--')}
+                  </Typography>
+                </View>
+                <View style={s.metricDivider} />
+                <View style={s.metricCol}>
+                  <Typography style={s.metricLbl}>OVERTIME</Typography>
+                  <Typography
+                    style={[
+                      s.metricVal,
+                      (isOngoing ? liveOvertime : log.overtime) !== '0:00:00' && { color: colors.warning },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {isOngoing ? liveOvertime : (log.overtime || '0:00:00')}
+                  </Typography>
+                </View>
               </View>
-              <View style={s.metricDivider} />
-              <View style={s.metricCol}>
-                <Typography style={s.metricLbl}>OUT</Typography>
-                <Typography style={s.metricVal} numberOfLines={1}>{log.lastPunchOut || '--:--'}</Typography>
-              </View>
-              <View style={s.metricDivider} />
-              <View style={s.metricCol}>
-                <Typography style={s.metricLbl}>WORKED</Typography>
-                <Typography style={[s.metricVal, { color: colors.primary }]} numberOfLines={1}>
-                  {isOngoing ? liveWorked : (log.workingHours || '--:--:--')}
-                </Typography>
-              </View>
-              <View style={s.metricDivider} />
-              <View style={s.metricCol}>
-                <Typography style={s.metricLbl}>OVERTIME</Typography>
-                <Typography
-                  style={[
-                    s.metricVal,
-                    (isOngoing ? liveOvertime : log.overtime) !== '0:00:00' && { color: colors.warning },
-                  ]}
-                  numberOfLines={1}
+
+              {/* Overtime Details: Approved OT & Remaining OT (Only visible when canAddOvertime is true) */}
+              {Boolean(log.canAddOvertime) && (
+                <View style={s.otMetricsStrip}>
+                  <View style={s.metricCol}>
+                    <Typography style={s.metricLbl}>APPROVED OT</Typography>
+                    <Typography
+                      style={[
+                        s.metricVal,
+                        log.approvedOvertime && log.approvedOvertime !== '0:00:00' && { color: colors.success },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {log.approvedOvertime || '0:00:00'}
+                    </Typography>
+                  </View>
+                  <View style={s.metricDivider} />
+                  <View style={s.metricCol}>
+                    <Typography style={s.metricLbl}>REMAINING OT</Typography>
+                    <Typography
+                      style={[
+                        s.metricVal,
+                        log.remainingOvertime && log.remainingOvertime !== '0:00:00' && { color: colors.warning },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {log.remainingOvertime || '0:00:00'}
+                    </Typography>
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Conditional Add Overtime Button */}
+          {Boolean(log.canAddOvertime) && onAddOvertime && (
+            <View style={s.overtimeActionRow}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => onAddOvertime(log)}
+                style={s.addOtButton}
+              >
+                <LinearGradient
+                  colors={colors.loginButtonBgGradient as any}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={s.addOtGradient}
                 >
-                  {isOngoing ? liveOvertime : (log.overtime || '0:00:00')}
-                </Typography>
-              </View>
+                  <Plus size={normalize(13)} color={colors.white} />
+                  <Typography style={s.addOtText}>Add Overtime</Typography>
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
           )}
         </TouchableOpacity>
@@ -246,6 +342,32 @@ export const DayCard = ({ log, onPress, index }: { log: any; onPress: () => void
 };
 
 const s = StyleSheet.create({
+  overtimeActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: normalize(10),
+  },
+  addOtButton: {
+    borderRadius: normalize(10),
+    overflow: 'hidden',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  addOtGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: normalize(10),
+    paddingVertical: normalize(5),
+    gap: normalize(4),
+  },
+  addOtText: {
+    color: colors.white,
+    fontSize: normalize(11),
+    fontWeight: '800',
+  },
   dayCard: {
     borderRadius: normalize(20),
     marginBottom: normalize(12),
@@ -306,6 +428,19 @@ const s = StyleSheet.create({
     color: colors.primary,
     fontWeight: '700',
   },
+  otStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: normalize(6),
+    paddingVertical: normalize(2),
+    borderRadius: normalize(6),
+    borderWidth: 1,
+    gap: normalize(3),
+  },
+  otStatusPillText: {
+    fontSize: normalize(10),
+    fontWeight: '700',
+  },
   microIconBadge: {
     width: normalize(26),
     height: normalize(26),
@@ -314,6 +449,10 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  metricsContainer: {
+    marginTop: normalize(10),
+    gap: normalize(6),
+  },
   metricsStrip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -321,7 +460,16 @@ const s = StyleSheet.create({
     borderRadius: normalize(12),
     paddingVertical: normalize(8),
     paddingHorizontal: normalize(10),
-    marginTop: normalize(10),
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  otMetricsStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    borderRadius: normalize(12),
+    paddingVertical: normalize(6),
+    paddingHorizontal: normalize(10),
     borderWidth: 1,
     borderColor: colors.border,
   },

@@ -1,5 +1,4 @@
 // @ts-nocheck
-// @ts-nocheck
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   ViewStyle,
@@ -8,8 +7,10 @@ import {
   StyleSheet,
   ActivityIndicator,
   Dimensions,
+  Platform,
+  FlatList,
+  TouchableOpacity,
 } from 'react-native';
-import { FlatList, TouchableOpacity } from 'react-native-gesture-handler';
 import { UICoreTextInput } from '../UICoreTextInput';
 import { UICoreSearch } from '../UICoreSearch';
 import { Typography } from '../../Typography';
@@ -157,7 +158,7 @@ export const UICoreDropdown: React.FC<UICoreDropdownProps> = ({
       containerRef.current?.measure((_x, _y, _width, _height, _pageX, pageY) => {
         const screenHeight = Dimensions.get('window').height;
         // If dropdown is in the bottom 45% of the screen, open upward
-        if (pageY > screenHeight * 0.55) {
+        if (typeof pageY === 'number' && !isNaN(pageY) && pageY > screenHeight * 0.55) {
           setAutoOpenUpward(true);
         } else {
           setAutoOpenUpward(false);
@@ -211,9 +212,7 @@ export const UICoreDropdown: React.FC<UICoreDropdownProps> = ({
           value={getDisplayLabel()}
           placeholder={placeholder}
           error={error}
-          // Dropdown "box" should never behave like a text field.
-          // It is pressable (wrapper TouchableOpacity) and opens a menu, so we must prevent
-          // TextInput focus/keyboard while keeping enabled styling.
+          disabled={disabled}
           editable={false}
           showSoftInputOnFocus={false}
           caretHidden={true}
@@ -291,6 +290,7 @@ export const UICoreDropdown: React.FC<UICoreDropdownProps> = ({
                     style={styles.list}
                     scrollEnabled={true}
                     nestedScrollEnabled={true}
+                    keyboardShouldPersistTaps="handled"
                     onEndReached={onEndReached}
                     onEndReachedThreshold={onEndReachedThreshold}
                     ListFooterComponent={
@@ -312,6 +312,7 @@ export const UICoreDropdown: React.FC<UICoreDropdownProps> = ({
                             optionStyle,
                           ]}
                           onPress={() => handleSelect(item)}
+                          activeOpacity={0.7}
                         >
                           <Typography style={[styles.optionText, optionTextStyle]}>
                             {item.label}
@@ -329,6 +330,7 @@ export const UICoreDropdown: React.FC<UICoreDropdownProps> = ({
                     style={[styles.optionItem, styles.createOptionItem]}
                     onPress={() => onCreateOption?.(searchValue.trim())}
                     disabled={isCreatingOption}
+                    activeOpacity={0.7}
                   >
                     {isCreatingOption ? (
                       <ActivityIndicator size="small" color={colors.primary} />
@@ -356,7 +358,8 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   activeContainer: {
-    zIndex: 1000,
+    zIndex: 10000,
+    elevation: Platform.OS === 'android' ? 99 : undefined,
   },
   disabledDropdown: {
     opacity: 0.5,
@@ -383,8 +386,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 8,
-    zIndex: 9999,
+    elevation: Platform.OS === 'android' ? 24 : 8,
+    zIndex: 10002,
   },
   dropdownMenuContent: {
     backgroundColor: colors.white,
@@ -397,7 +400,7 @@ const styles = StyleSheet.create({
     left: -normalize(1000),
     right: -normalize(1000),
     backgroundColor: 'transparent',
-    zIndex: 9998,
+    zIndex: 10001,
   },
   dropdownMenuDownward: {
     top: '100%',

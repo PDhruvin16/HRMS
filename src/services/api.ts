@@ -1,5 +1,5 @@
 import { InternalAxiosRequestConfig } from 'axios';
-import storage from '../utils/Storage';
+import storage, { StorageKeys } from '../utils/Storage';
 import log from '../utils/Logger';
 import authApi from '../api/authApi';
 import { ApiClient, AuthClient, BASE_URL } from './apiClients';
@@ -129,7 +129,10 @@ const axiosClient = ApiClient;
 // ApiClient always adds Authorization — public calls should use AuthClient
 axiosClient.interceptors.request.use(
   async (config: CustomAxiosRequestConfig) => {
-    const token = storage.getAccessToken();
+    let token = storage.getAccessToken();
+    if (!token) {
+      token = await storage.getStringAsync(StorageKeys.accessToken);
+    }
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -178,18 +181,22 @@ AuthClient.interceptors.request.use(
 
 AuthClient.interceptors.response.use(
   (response) => {
-    const serverDateHeader = response.headers && response.headers['date'];
-    if (serverDateHeader) {
-      const serverMs = new Date(serverDateHeader).getTime();
-      const clientMs = Date.now();
-      serverClockOffset = serverMs - clientMs;
-    }
-    if (__DEV__) {
-      log.debug('✅ Auth Response:', {
-        status: response.status,
-        url: response.config.url,
-        data: response.data,
-      });
+    try {
+      const serverDateHeader = response.headers && response.headers['date'];
+      if (serverDateHeader) {
+        const serverMs = new Date(serverDateHeader).getTime();
+        const clientMs = Date.now();
+        serverClockOffset = serverMs - clientMs;
+      }
+      if (__DEV__) {
+        log.debug('✅ Auth Response:', {
+          status: response.status,
+          url: response.config?.url,
+          data: response.data,
+        });
+      }
+    } catch {
+      // Ignore logging error
     }
     return response.data;
   },
@@ -200,10 +207,11 @@ AuthClient.interceptors.response.use(
         status: axiosError.response?.status,
         url: axiosError.config?.url,
         data: axiosError.response?.data,
+        message: axiosError.message,
       });
     }
     return Promise.reject(error);
-  }
+  },
 );
 
 let isRefreshing = false;
@@ -326,22 +334,48 @@ axiosClient.interceptors.response.use(
         }
 
         const refreshResponse = await authApi.refreshToken(refreshToken);
-        const tokenData = (refreshResponse as any).data || refreshResponse;
+        const tokenEnvelope = refreshResponse as any;
+        const innerData = tokenEnvelope?.data || tokenEnvelope;
 
-        if (!tokenData || (!tokenData.access && !tokenData.accessToken)) {
-          throw new Error('Invalid refresh token response structure');
+        const newAccessToken =
+          innerData?.accessToken ||
+          innerData?.access ||
+          innerData?.access_token ||
+          tokenEnvelope?.accessToken;
+
+        const newRefreshToken =
+          innerData?.refreshToken ||
+          innerData?.refresh ||
+          innerData?.refresh_token ||
+          tokenEnvelope?.refreshToken ||
+          refreshToken;
+
+        if (!newAccessToken) {
+          throw new Error('Invalid refresh token response structure: missing access token');
         }
 
-        const newAccessToken = tokenData.accessToken || tokenData.access;
-        const newRefreshToken = tokenData.refreshToken || tokenData.refresh || refreshToken;
-
-        storage.setTokens({
+        await storage.setTokens({
           accessToken: newAccessToken,
           refreshToken: newRefreshToken,
         });
 
-        // Add events to update auth in Redux state if needed
-        // but for now, updating MMKV is enough as storage.getAccessToken() reads it.
+        // Sync with Redux state if available
+        try {
+          const { store } = await import('../store');
+          const { setCredentials } = await import('../store/slices/authSlice');
+          const currentUser = storage.getUser();
+          if (currentUser) {
+            store.dispatch(
+              setCredentials({
+                accessToken: newAccessToken,
+                refreshToken: newRefreshToken,
+                user: currentUser as any,
+              }),
+            );
+          }
+        } catch {
+          // Ignore
+        }
 
         processQueue(null, newAccessToken);
         isRefreshing = false;
@@ -350,17 +384,15 @@ axiosClient.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
         return axiosClient(originalRequest);
       } catch (refreshError) {
-        log.debug('Token refresh failed:', refreshError);
+        log.debug('Token refresh failed, forcing logout:', refreshError);
         processQueue(refreshError, null);
         isRefreshing = false;
 
-        const refreshToken = storage.getRefreshToken();
-        if (refreshToken !== 'mock-refresh-token') {
-          storage.clearAuth();
+        await storage.clearAuth();
 
-          const { default: AuthEvents, AUTH_LOGOUT_EVENT } = await import('../utils/AuthEvents');
-          AuthEvents.emit(AUTH_LOGOUT_EVENT);
-        }
+        const { default: AuthEvents, AUTH_LOGOUT_EVENT } = await import('../utils/AuthEvents');
+        AuthEvents.emit(AUTH_LOGOUT_EVENT);
+
         return Promise.reject(refreshError);
       }
     }

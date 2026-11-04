@@ -26,8 +26,8 @@
  */
 
 // @ts-nocheck
-import React, { useState, useMemo, useEffect } from 'react';
-import { useRouter } from 'expo-router';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../store';
 import {
@@ -39,7 +39,9 @@ import {
   Modal,
   Alert,
   RefreshControl,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import moment from 'moment';
 import { Calendar } from 'react-native-calendars';
 import { BlurView } from 'expo-blur';
@@ -82,7 +84,6 @@ import {
   AttendanceSummary,
   attendanceApi,
 } from '../../api/attendanceApi';
-import useRole from '../../hooks/useRole';
 import { InfiniteList } from '../../components/InfiniteList';
 import { getServerMoment } from '../../services/api';
 import { DayCard } from './DayCard';
@@ -134,19 +135,24 @@ const secondsToHmsString = (totalSecs: number): string => {
    MAIN SCREEN
 ═══════════════════════════════════════════════════════════════ */
 export const AttendanceScreen: React.FC = () => {
-  const { isAdminOrHR } = useRole();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { handleError } = useErrorHandle();
 
   /* ── Permissions ─────────────────────────────────────────── */
-  const slicePerms   = useSelector((state: RootState) => state.permission?.permissions);
+  const slicePerms    = useSelector((state: RootState) => state.permission?.permissions);
   const authUserPerms = useSelector((state: RootState) => state.auth.user?.permissions);
 
-  const permissions  = (slicePerms && slicePerms.length > 0) ? slicePerms : (authUserPerms || []);
-  const hasPermission = (resource: string, action: string) => {
-    if (!permissions || permissions.length === 0) return true;
+  const permissions = useMemo(() => {
+    if (Array.isArray(slicePerms) && slicePerms.length > 0) return slicePerms;
+    if (Array.isArray(authUserPerms) && authUserPerms.length > 0) return authUserPerms;
+    return [];
+  }, [slicePerms, authUserPerms]);
+
+  const hasPermission = useCallback((resource: string, action: string) => {
+    if (!permissions || !Array.isArray(permissions) || permissions.length === 0) return false;
     return permissions.some((p: any) => p.resource === resource && p.action === action);
-  };
+  }, [permissions]);
 
   /* ── Available tabs (permission-gated) ───────────────────── */
   const availableTabs = useMemo<Tab[]>(() => {
@@ -157,17 +163,35 @@ export const AttendanceScreen: React.FC = () => {
     if (hasPermission('attendance_correction', 'view') || hasPermission('attendance_correction', 'add')) {
       tabs.push('My Corrections');
     }
-    tabs.push('Team'); // always visible
+    if (hasPermission('attendance', 'approve')) tabs.push('Team');
     if (hasPermission('attendance', 'approve')) tabs.push('WFH Approvals');
     if (hasPermission('attendance_correction', 'approve')) {
       tabs.push('Correction Approvals');
     }
+    if (tabs.length === 0) {
+      tabs.push('My Attendance');
+    }
     return tabs;
-  }, [permissions]);
+  }, [hasPermission]);
+
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
 
   /* ── Active tab ──────────────────────────────────────────── */
-  const [activeTab, setActiveTab] = useState<Tab>('My Attendance');
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    if (tab && availableTabs.includes(tab as Tab)) {
+      return tab as Tab;
+    }
+    return availableTabs[0] || 'My Attendance';
+  });
 
+  // Sync activeTab when 'tab' param changes
+  useEffect(() => {
+    if (tab && availableTabs.includes(tab as Tab)) {
+      setActiveTab(tab as Tab);
+    }
+  }, [tab, availableTabs]);
+
+  // Ensure activeTab is valid for user permissions
   useEffect(() => {
     if (availableTabs.length > 0 && !availableTabs.includes(activeTab)) {
       setActiveTab(availableTabs[0]);
@@ -188,6 +212,7 @@ export const AttendanceScreen: React.FC = () => {
   const [teamViewType,       setTeamViewType]       = useState<'today' | 'monthly'>('today');
 
   const [modalType,              setModalType]              = useState<'WFH' | 'Overtime' | null>(null);
+  const [overtimeInitialValues,  setOvertimeInitialValues]  = useState<{ fromDate?: string; hours?: string } | undefined>(undefined);
   const [isCorrectionModalOpen,  setIsCorrectionModalOpen]  = useState(false);
   const [viewingCorrection,      setViewingCorrection]      = useState<AttendanceCorrectionRequest | null>(null);
   const [deletingCorrection,     setDeletingCorrection]     = useState<AttendanceCorrectionRequest | null>(null);
@@ -200,108 +225,137 @@ export const AttendanceScreen: React.FC = () => {
   const [deletingWFHRequest,     setDeletingWFHRequest]     = useState<WFHRequest | null>(null);
   const [approvalsSearch,        setApprovalsSearch]        = useState('');
 
+  const handleAddOvertimeForLog = useCallback((log: AttendanceLog) => {
+    let initialHours = '';
+    if (log.overtime && log.overtime !== '0:00:00') {
+      const parts = log.overtime.split(':').map(Number);
+      if (parts.length >= 2) {
+        const h = parts[0] + (parts[1] / 60);
+        initialHours = h > 0 ? (h % 1 === 0 ? String(h) : h.toFixed(1)) : '';
+      }
+    }
+    setOvertimeInitialValues({
+      fromDate: log.date,
+      hours: initialHours,
+    });
+    setSelectedLogForModal(null);
+    setModalType('Overtime');
+  }, []);
+
   /* ── Live API Data for My Corrections & Approvals ────────────────── */
   const [correctionsList, setCorrectionsList] = useState<AttendanceCorrectionRequest[]>([]);
   const [allCorrectionsList, setAllCorrectionsList] = useState<AttendanceCorrectionRequest[]>([]);
   const [reviewingCorrection, setReviewingCorrection] = useState<AttendanceCorrectionRequest | null>(null);
   const [rejectingCorrection, setRejectingCorrection] = useState<AttendanceCorrectionRequest | null>(null);
   const [approvalSearch, setApprovalSearch] = useState('');
+  const [isLoadingCorrections, setIsLoadingCorrections] = useState(false);
+  const [isRefreshingCorrections, setIsRefreshingCorrections] = useState(false);
+  const [isLoadingApprovals, setIsLoadingApprovals] = useState(false);
+  const [isRefreshingApprovals, setIsRefreshingApprovals] = useState(false);
 
   /* ── Fetch My Corrections API ────────────────────────────── */
-  useEffect(() => {
-    if (activeTab === 'My Corrections') {
-      attendanceApi.getCorrectionRequests()
-        .then((resData) => {
-          console.log('[DEBUG] My Corrections GET API raw response:', JSON.stringify(resData, null, 2));
-          const list = resData?.data || resData || [];
-          if (Array.isArray(list)) {
-            const mapped = list.map((item: any, idx: number) => {
-              const statusStr = item.status
-                ? item.status.charAt(0).toUpperCase() + item.status.slice(1).toLowerCase()
-                : 'Pending';
+  const fetchMyCorrections = useCallback(async () => {
+    try {
+      const resData = await attendanceApi.getCorrectionRequests();
+      console.log('[DEBUG] My Corrections GET API raw response:', JSON.stringify(resData, null, 2));
+      const list = resData?.data || resData || [];
+      if (Array.isArray(list)) {
+        const mapped = list.map((item: any, idx: number) => {
+          const statusStr = item.status
+            ? item.status.charAt(0).toUpperCase() + item.status.slice(1).toLowerCase()
+            : 'Pending';
 
-              const punches = Array.isArray(item.items)
-                ? item.items.map((it: any, i: number) => ({
-                    id: it.id || `p_${i}`,
-                    type: (it.punchType || 'in').toUpperCase() as 'IN' | 'OUT',
-                    time: moment(it.punchTime).isValid()
-                      ? moment(it.punchTime).format('HH:mm:ss')
-                      : (it.punchTime || '09:00:00'),
-                    source: it.actionType ? it.actionType : 'Added',
-                  }))
-                : [];
+          const punches = Array.isArray(item.items)
+            ? item.items.map((it: any, i: number) => ({
+                id: it.id || `p_${i}`,
+                type: (it.punchType || 'in').toUpperCase() as 'IN' | 'OUT',
+                time: moment(it.punchTime).isValid()
+                  ? moment(it.punchTime).format('HH:mm:ss')
+                  : (it.punchTime || '09:00:00'),
+                source: it.actionType ? it.actionType : 'Added',
+              }))
+            : [];
 
-              return {
-                id: item.id || `corr_${idx}`,
-                employeeId: item.employeeId,
-                employeeName: item.employeeName,
-                empCode: item.empCode,
-                date: item.requestDate || (item.createdAt ? moment(item.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')),
-                submittedOn: item.createdAt ? moment(item.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'),
-                reason: item.reason || 'Attendance correction request',
-                status: (statusStr === 'Pending' || statusStr === 'Approved' || statusStr === 'Rejected' ? statusStr : 'Pending') as any,
-                punches,
-              };
-            });
-            setCorrectionsList(mapped);
-          } else {
-            setCorrectionsList([]);
-          }
-        })
-        .catch((err) => {
-          console.error('[DEBUG] Failed to fetch corrections GET API:', err);
-          setCorrectionsList([]);
+          return {
+            id: item.id || `corr_${idx}`,
+            employeeId: item.employeeId,
+            employeeName: item.employeeName,
+            empCode: item.empCode,
+            date: item.requestDate || (item.createdAt ? moment(item.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')),
+            submittedOn: item.createdAt ? moment(item.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'),
+            reason: item.reason || 'Attendance correction request',
+            status: (statusStr === 'Pending' || statusStr === 'Approved' || statusStr === 'Rejected' ? statusStr : 'Pending') as any,
+            punches,
+          };
         });
+        setCorrectionsList(mapped);
+      } else {
+        setCorrectionsList([]);
+      }
+    } catch (err) {
+      console.error('[DEBUG] Failed to fetch corrections GET API:', err);
+      setCorrectionsList([]);
     }
-  }, [activeTab]);
+  }, []);
 
   /* ── Fetch Correction Approvals API (All Employees) ───────── */
+  const fetchCorrectionApprovals = useCallback(async () => {
+    try {
+      const resData = await attendanceApi.getAllCorrectionRequests();
+      console.log('[DEBUG] All Corrections GET API raw response:', JSON.stringify(resData, null, 2));
+      const list = resData?.data || resData || [];
+      if (Array.isArray(list)) {
+        const mapped = list.map((item: any, idx: number) => {
+          const statusStr = item.status
+            ? item.status.charAt(0).toUpperCase() + item.status.slice(1).toLowerCase()
+            : 'Pending';
+
+          const punches = Array.isArray(item.items)
+            ? item.items.map((it: any, i: number) => ({
+                id: it.id || `p_${i}`,
+                type: (it.punchType || 'in').toUpperCase() as 'IN' | 'OUT',
+                time: moment(it.punchTime).isValid()
+                  ? moment(it.punchTime).format('HH:mm:ss')
+                  : (it.punchTime || '09:00:00'),
+                source: it.actionType ? it.actionType : 'Added',
+              }))
+            : [];
+
+          return {
+            id: item.id || `corr_${idx}`,
+            employeeId: item.employeeId,
+            employeeName: item.employeeName || 'Employee',
+            empCode: item.empCode || '',
+            date: item.requestDate || (item.createdAt ? moment(item.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')),
+            submittedOn: item.createdAt ? moment(item.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'),
+            reason: item.reason || 'Attendance correction request',
+            status: (statusStr === 'Pending' || statusStr === 'Approved' || statusStr === 'Rejected' ? statusStr : 'Pending') as any,
+            punches,
+          };
+        });
+        setAllCorrectionsList(mapped);
+      } else {
+        setAllCorrectionsList([]);
+      }
+    } catch (err) {
+      console.error('[DEBUG] Failed to fetch all corrections GET API:', err);
+      setAllCorrectionsList([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'My Corrections') {
+      setIsLoadingCorrections(true);
+      fetchMyCorrections().finally(() => setIsLoadingCorrections(false));
+    }
+  }, [activeTab, fetchMyCorrections]);
+
   useEffect(() => {
     if (activeTab === 'Correction Approvals') {
-      attendanceApi.getAllCorrectionRequests()
-        .then((resData) => {
-          console.log('[DEBUG] All Corrections GET API raw response:', JSON.stringify(resData, null, 2));
-          const list = resData?.data || resData || [];
-          if (Array.isArray(list)) {
-            const mapped = list.map((item: any, idx: number) => {
-              const statusStr = item.status
-                ? item.status.charAt(0).toUpperCase() + item.status.slice(1).toLowerCase()
-                : 'Pending';
-
-              const punches = Array.isArray(item.items)
-                ? item.items.map((it: any, i: number) => ({
-                    id: it.id || `p_${i}`,
-                    type: (it.punchType || 'in').toUpperCase() as 'IN' | 'OUT',
-                    time: moment(it.punchTime).isValid()
-                      ? moment(it.punchTime).format('HH:mm:ss')
-                      : (it.punchTime || '09:00:00'),
-                    source: it.actionType ? it.actionType : 'Added',
-                  }))
-                : [];
-
-              return {
-                id: item.id || `corr_${idx}`,
-                employeeId: item.employeeId,
-                employeeName: item.employeeName || 'Employee',
-                empCode: item.empCode || '',
-                date: item.requestDate || (item.createdAt ? moment(item.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')),
-                submittedOn: item.createdAt ? moment(item.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'),
-                reason: item.reason || 'Attendance correction request',
-                status: (statusStr === 'Pending' || statusStr === 'Approved' || statusStr === 'Rejected' ? statusStr : 'Pending') as any,
-                punches,
-              };
-            });
-            setAllCorrectionsList(mapped);
-          } else {
-            setAllCorrectionsList([]);
-          }
-        })
-        .catch((err) => {
-          console.error('[DEBUG] Failed to fetch all corrections GET API:', err);
-          setAllCorrectionsList([]);
-        });
+      setIsLoadingApprovals(true);
+      fetchCorrectionApprovals().finally(() => setIsLoadingApprovals(false));
     }
-  }, [activeTab]);
+  }, [activeTab, fetchCorrectionApprovals]);
 
   /* ── Queries (conditionally enabled by active tab & permission) ───────── */
   const { data: todayStatus, isLoading: todayLoading } =
@@ -343,7 +397,7 @@ export const AttendanceScreen: React.FC = () => {
     isRefetching: teamRefetching,
   } = useTeamAttendanceInfiniteQuery(
     { from: teamDateFrom, to: today },
-    { enabled: activeTab === 'Team' }
+    { enabled: activeTab === 'Team' && hasPermission('attendance', 'approve') }
   );
 
   const queryClient = useQueryClient();
@@ -355,33 +409,34 @@ export const AttendanceScreen: React.FC = () => {
     const prefetchTimer = setTimeout(() => {
       const monthlyDateFrom = moment().startOf('month').format('YYYY-MM-DD');
 
-      // 1a. Background prefetch Team Attendance - Today's Log
-      queryClient.prefetchInfiniteQuery({
-        queryKey: ['attendance', 'team', userId, today, today],
-        queryFn: ({ pageParam = 1 }) =>
-          attendanceApi.getTeamAttendance({
-            page: pageParam,
-            limit: 10,
-            dateFrom: today,
-            dateTo: today,
-          }),
-        initialPageParam: 1,
-        staleTime: 5 * 60 * 1000,
-      });
+      // 1. Background prefetch Team Attendance
+      if (hasPermission('attendance', 'approve')) {
+        queryClient.prefetchInfiniteQuery({
+          queryKey: ['attendance', 'team', userId, today, today],
+          queryFn: ({ pageParam = 1 }) =>
+            attendanceApi.getTeamAttendance({
+              page: pageParam,
+              limit: 10,
+              dateFrom: today,
+              dateTo: today,
+            }),
+          initialPageParam: 1,
+          staleTime: 5 * 60 * 1000,
+        });
 
-      // 1b. Background prefetch Team Attendance - Monthly Log
-      queryClient.prefetchInfiniteQuery({
-        queryKey: ['attendance', 'team', userId, monthlyDateFrom, today],
-        queryFn: ({ pageParam = 1 }) =>
-          attendanceApi.getTeamAttendance({
-            page: pageParam,
-            limit: 10,
-            dateFrom: monthlyDateFrom,
-            dateTo: today,
-          }),
-        initialPageParam: 1,
-        staleTime: 5 * 60 * 1000,
-      });
+        queryClient.prefetchInfiniteQuery({
+          queryKey: ['attendance', 'team', userId, monthlyDateFrom, today],
+          queryFn: ({ pageParam = 1 }) =>
+            attendanceApi.getTeamAttendance({
+              page: pageParam,
+              limit: 10,
+              dateFrom: monthlyDateFrom,
+              dateTo: today,
+            }),
+          initialPageParam: 1,
+          staleTime: 5 * 60 * 1000,
+        });
+      }
 
       // 2. Background prefetch My WFH
       if (hasPermission('my_wfh', 'view')) {
@@ -403,7 +458,7 @@ export const AttendanceScreen: React.FC = () => {
     }, 600);
 
     return () => clearTimeout(prefetchTimer);
-  }, [userId, today]);
+  }, [userId, today, hasPermission]);
 
   /* ── Mutations ───────────────────────────────────────────── */
   const { mutateAsync: checkIn }   = useCheckInMutation();
@@ -541,7 +596,7 @@ export const AttendanceScreen: React.FC = () => {
       const targetForLeaving = targetSecs > 0 ? targetSecs : 8.5 * 3600;
       const leavingTime = moment(firstPunchMoment)
         .add(targetForLeaving + todayBreakSecs, 'seconds')
-        .format('HH:mm:ss');
+        .format('hh:mm:ss A');
 
       // Incomplete hours: Base server incomplete minus live worked delta today
       const baseIncompleteSecs = parseHmsToSeconds(summary.totalIncomplete);
@@ -791,16 +846,28 @@ export const AttendanceScreen: React.FC = () => {
     />
   );
 
+  const handleRefreshMyCorrections = useCallback(async () => {
+    setIsRefreshingCorrections(true);
+    await fetchMyCorrections();
+    setIsRefreshingCorrections(false);
+  }, [fetchMyCorrections]);
+
+  const handleRefreshCorrectionApprovals = useCallback(async () => {
+    setIsRefreshingApprovals(true);
+    await fetchCorrectionApprovals();
+    setIsRefreshingApprovals(false);
+  }, [fetchCorrectionApprovals]);
+
   /** My Corrections tab */
   const renderMyCorrections = () => (
     <InfiniteList
       data={filteredCorrections}
-      isLoading={false}
+      isLoading={isLoadingCorrections && filteredCorrections.length === 0}
       isFetchingNextPage={false}
       hasNextPage={false}
       onLoadMore={() => {}}
-      onRefresh={() => {}}
-      isRefreshing={false}
+      onRefresh={handleRefreshMyCorrections}
+      isRefreshing={isRefreshingCorrections}
       onEndReachedThreshold={0.8}
       ListHeaderComponent={
         <View style={{ marginBottom: normalize(8) }}>
@@ -868,12 +935,12 @@ export const AttendanceScreen: React.FC = () => {
   const renderCorrectionApprovals = () => (
     <InfiniteList
       data={filteredAllCorrections}
-      isLoading={false}
+      isLoading={isLoadingApprovals && filteredAllCorrections.length === 0}
       isFetchingNextPage={false}
       hasNextPage={false}
       onLoadMore={() => {}}
-      onRefresh={() => {}}
-      isRefreshing={false}
+      onRefresh={handleRefreshCorrectionApprovals}
+      isRefreshing={isRefreshingApprovals}
       onEndReachedThreshold={0.8}
       ListHeaderComponent={
         <View style={{ marginBottom: normalize(8) }}>
@@ -995,6 +1062,7 @@ export const AttendanceScreen: React.FC = () => {
                 if (activeTab === 'My Corrections') {
                   setIsCorrectionModalOpen(true);
                 } else {
+                  setOvertimeInitialValues(undefined);
                   setModalType(activeTab === 'My WFH' ? 'WFH' : 'Overtime');
                 }
               }}
@@ -1034,7 +1102,14 @@ export const AttendanceScreen: React.FC = () => {
         }
       />
 
-      <TabBar active={activeTab} onChange={setActiveTab} tabs={availableTabs} />
+      <TabBar
+        active={activeTab}
+        onChange={(newTab) => {
+          setActiveTab(newTab);
+          router.setParams({ tab: undefined });
+        }}
+        tabs={availableTabs}
+      />
 
       {/* ── Tab content ──────────────────────────────────────── */}
       {activeTab === 'My Attendance' ? (
@@ -1055,7 +1130,12 @@ export const AttendanceScreen: React.FC = () => {
             onRefresh={refetch}
             isRefreshing={isRefetching}
             renderItem={({ item, index }) => (
-              <DayCard log={item} index={index} onPress={() => setSelectedLogForModal(item)} />
+              <DayCard
+                log={item}
+                index={index}
+                onPress={() => setSelectedLogForModal(item)}
+                onAddOvertime={handleAddOvertimeForLog}
+              />
             )}
             renderSkeleton={() => (
               <View style={[s.dayCard, { opacity: 0.5, height: normalize(120), justifyContent: 'center' }]}>
@@ -1136,7 +1216,11 @@ export const AttendanceScreen: React.FC = () => {
         <NewRequestModal
           visible={!!modalType}
           type={modalType}
-          onClose={() => setModalType(null)}
+          initialValues={overtimeInitialValues}
+          onClose={() => {
+            setModalType(null);
+            setOvertimeInitialValues(undefined);
+          }}
           onSubmit={async (data) => {
             try {
               if (modalType === 'WFH') {
@@ -1145,6 +1229,7 @@ export const AttendanceScreen: React.FC = () => {
                 await createOT({ date: data.fromDate, hours: data.hours, reason: data.reason });
               }
               setModalType(null);
+              setOvertimeInitialValues(undefined);
             } catch (err) {
               handleError(err, `Failed to submit ${modalType} request.`);
             }
@@ -1155,11 +1240,17 @@ export const AttendanceScreen: React.FC = () => {
       <NewCorrectionModal
         visible={isCorrectionModalOpen}
         onClose={() => setIsCorrectionModalOpen(false)}
+        isSubmitting={isProcessing}
         onSubmit={async (data) => {
           const requestDate = moment(data.date, ['DD/MM/YYYY', 'YYYY-MM-DD']).format('YYYY-MM-DD');
 
           const addedItems = data.punches.filter((p) => p.isAdded);
           const punchesToSend = addedItems.length > 0 ? addedItems : data.punches;
+
+          if (!punchesToSend || punchesToSend.length === 0) {
+            Alert.alert('Validation Error', 'Please add at least one punch entry before submitting.');
+            return;
+          }
 
           const itemsPayload = punchesToSend.map((p) => {
             const dt = moment(`${requestDate} ${p.time}`, [
@@ -1183,30 +1274,11 @@ export const AttendanceScreen: React.FC = () => {
           try {
             setIsProcessing(true);
             await attendanceApi.submitCorrectionRequest(payload);
-
-            const newRecord: AttendanceCorrectionRequest = {
-              id: `corr_${Date.now()}`,
-              date: requestDate,
-              punches: data.punches,
-              reason: data.reason,
-              status: 'Pending',
-              submittedOn: moment().format('YYYY-MM-DD'),
-            };
-            setCorrectionsList((prev) => [newRecord, ...prev]);
+            await fetchMyCorrections();
             setIsCorrectionModalOpen(false);
             Alert.alert('Success', 'Attendance correction request submitted successfully.');
           } catch (err: any) {
             handleError(err, 'Failed to submit attendance correction request.');
-            const newRecord: AttendanceCorrectionRequest = {
-              id: `corr_${Date.now()}`,
-              date: requestDate,
-              punches: data.punches,
-              reason: data.reason,
-              status: 'Pending',
-              submittedOn: moment().format('YYYY-MM-DD'),
-            };
-            setCorrectionsList((prev) => [newRecord, ...prev]);
-            setIsCorrectionModalOpen(false);
           } finally {
             setIsProcessing(false);
           }
@@ -1285,6 +1357,7 @@ export const AttendanceScreen: React.FC = () => {
         visible={!!selectedLogForModal}
         log={selectedLogForModal}
         onClose={() => setSelectedLogForModal(null)}
+        onAddOvertime={handleAddOvertimeForLog}
       />
 
       <DeleteConfirmationModal
@@ -1352,7 +1425,7 @@ export const AttendanceScreen: React.FC = () => {
           onRequestClose={() => setScreenActiveDatePicker(null)}
         >
           <BlurView intensity={60} tint="dark" style={s.datePickerModalOverlay}>
-            <View style={s.datePickerModalSheet}>
+            <View style={[s.datePickerModalSheet, { paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'android' ? normalize(16) : normalize(8)) }]}>
               <View style={s.datePickerModalHeader}>
                 <Typography variant="h3" style={{ fontWeight: '800' }}>
                   Select {screenActiveDatePicker === 'start' ? 'From Date' : 'To Date'}

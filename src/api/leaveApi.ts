@@ -48,6 +48,7 @@ export interface LeaveRequest {
   hrApproverName?: string | null;
   adminApproverName?: string | null;
   rejectedByName?: string | null;
+  canApprove?: boolean;
   
   // Legacy fields
   employee_name?: string;
@@ -424,6 +425,7 @@ export const leaveApi = {
         appliedAt: item.appliedAt || item.created_at || item.createdAt || '',
         employeeName: item.employeeName || item.employee_name || 'N/A',
         empCode: item.empCode || item.employee_role || '',
+        canApprove: Boolean(item.canApprove ?? item.can_approve),
       }));
 
       const totalPages = body?.totalPages || 1;

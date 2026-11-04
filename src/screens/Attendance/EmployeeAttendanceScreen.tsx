@@ -8,7 +8,9 @@ import {
   ActivityIndicator,
   Modal,
   Dimensions,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import moment from 'moment';
 import { Calendar } from 'react-native-calendars';
 import { BlurView } from 'expo-blur';
@@ -20,6 +22,7 @@ import {
   Clock, LogIn, LogOut, TrendingUp, CalendarRange,
   AlertCircle, ChevronDown, ChevronRight, ChevronUp,
   X, Coffee, Zap, Hourglass, Sun, Target, ChevronLeft,
+  LayoutList, Table,
 } from 'lucide-react-native';
 import { normalize } from '../../utils/responsive';
 import colors from '../../theme/color';
@@ -29,6 +32,7 @@ import { InfiniteList } from '../../components/InfiniteList';
 import { useEmployeeAttendanceInfiniteQuery } from '../../hooks/useQueries';
 import { getServerMoment } from '../../services/api';
 import { DayCard } from './DayCard';
+import { AttendanceTableRowCard } from './AttendanceTableRowCard';
 import { PunchSequenceModal } from './AttendanceComponents';
 
 const { width: SW } = Dimensions.get('window');
@@ -76,6 +80,7 @@ const EmptyState = ({ message, onRetry }: { message: string; onRetry?: () => voi
 );
 
 export const EmployeeAttendanceScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { employeeId, employeeName, date } = useLocalSearchParams<{ employeeId: string; employeeName: string; date?: string }>();
 
@@ -93,6 +98,7 @@ export const EmployeeAttendanceScreen: React.FC = () => {
   const [screenActiveDatePicker, setScreenActiveDatePicker] = useState<'start' | 'end' | null>(null);
   const [screenTempDate, setScreenTempDate] = useState('');
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
 
   const {
     data: infiniteData,
@@ -235,7 +241,7 @@ export const EmployeeAttendanceScreen: React.FC = () => {
       const targetForLeaving = targetSecs > 0 ? targetSecs : 8.5 * 3600;
       const leavingTime = moment(firstPunchMoment)
         .add(targetForLeaving + todayBreakSecs, 'seconds')
-        .format('HH:mm:ss');
+        .format('hh:mm:ss A');
 
       const baseIncompleteSecs  = parseHmsToSeconds(summary.totalIncomplete);
       const serverWorkedSecs    = parseHmsToSeconds(todayLog.workingHours);
@@ -308,6 +314,16 @@ export const EmployeeAttendanceScreen: React.FC = () => {
         <Typography style={s.sectionTitle}>History</Typography>
         <Typography style={s.sectionSub}>{logs.length} records</Typography>
       </Animated.View>
+
+      {viewMode === 'table' && (
+        <View style={s.tableHeaderBar}>
+          <Typography style={[s.tableThText, { flex: 1.8, textAlign: 'left' }]}>DATE</Typography>
+          <Typography style={[s.tableThText, { flex: 2.2, textAlign: 'center' }]}>STATUS</Typography>
+          <Typography style={[s.tableThText, { flex: 1.4, textAlign: 'center' }]}>IN</Typography>
+          <Typography style={[s.tableThText, { flex: 1.4, textAlign: 'center' }]}>OUT</Typography>
+          <Typography style={[s.tableThText, { flex: 2.0, textAlign: 'right' }]}>WORKED</Typography>
+        </View>
+      )}
     </View>
   );
 
@@ -316,6 +332,10 @@ export const EmployeeAttendanceScreen: React.FC = () => {
       <ActivityIndicator color={colors.primary} />
     </View>
   );
+
+  const handleBack = () => {
+    router.replace({ pathname: '/attendance', params: { tab: 'Team' } });
+  };
 
   return (
     <View style={s.container}>
@@ -327,15 +347,58 @@ export const EmployeeAttendanceScreen: React.FC = () => {
       />
       <CustomHeader 
         variant={{ type: 'basic', title: employeeName || 'Employee logs' }}
-        leftElement={
-          <TouchableOpacity onPress={() => router.back()} style={{ padding: normalize(8), backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: normalize(8) }}>
-            <ChevronLeft size={normalize(20)} color={colors.primary} />
-          </TouchableOpacity>
-        }
+        onBack={handleBack}
         rightElement={
-          <TouchableOpacity onPress={async () => { await Haptics.selectionAsync(); setCalendarOpen(!calendarOpen); }} style={{ padding: normalize(8), backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: normalize(8) }}>
-            <CalendarRange size={normalize(20)} color={colors.primary} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(8) }}>
+            <View style={s.viewToggleContainer}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={async () => {
+                  await Haptics.selectionAsync();
+                  setViewMode('card');
+                }}
+                style={[
+                  s.viewToggleBtn,
+                  viewMode === 'card' && s.viewToggleBtnActive,
+                ]}
+              >
+                <LayoutList
+                  size={normalize(16)}
+                  color={viewMode === 'card' ? colors.white : colors.primary}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={async () => {
+                  await Haptics.selectionAsync();
+                  setViewMode('table');
+                }}
+                style={[
+                  s.viewToggleBtn,
+                  viewMode === 'table' && s.viewToggleBtnActive,
+                ]}
+              >
+                <Table
+                  size={normalize(16)}
+                  color={viewMode === 'table' ? colors.white : colors.primary}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              onPress={async () => {
+                await Haptics.selectionAsync();
+                setCalendarOpen(!calendarOpen);
+              }}
+              style={{
+                padding: normalize(8),
+                backgroundColor: calendarOpen ? colors.primary + '20' : 'rgba(0,0,0,0.04)',
+                borderRadius: normalize(8),
+              }}
+            >
+              <CalendarRange size={normalize(20)} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
         }
       />
 
@@ -355,13 +418,21 @@ export const EmployeeAttendanceScreen: React.FC = () => {
           onLoadMore={fetchNextPage}
           onRefresh={refetch}
           isRefreshing={isRefetching}
-          renderItem={({ item, index }) => (
-            <DayCard
-              log={item}
-              index={index}
-              onPress={() => setSelectedLogForModal(item)}
-            />
-          )}
+          renderItem={({ item, index }) =>
+            viewMode === 'table' ? (
+              <AttendanceTableRowCard
+                log={item}
+                index={index}
+                onPress={() => setSelectedLogForModal(item)}
+              />
+            ) : (
+              <DayCard
+                log={item}
+                index={index}
+                onPress={() => setSelectedLogForModal(item)}
+              />
+            )
+          }
           renderSkeleton={renderLogSkeleton}
           ListHeaderComponent={renderAttendanceHeader()}
           contentContainerStyle={s.content}
@@ -385,7 +456,7 @@ export const EmployeeAttendanceScreen: React.FC = () => {
           onRequestClose={() => setScreenActiveDatePicker(null)}
         >
           <BlurView intensity={60} tint="dark" style={s.datePickerModalOverlay}>
-            <View style={s.datePickerModalSheet}>
+            <View style={[s.datePickerModalSheet, { paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'android' ? normalize(16) : normalize(8)) }]}>
               <View style={s.datePickerModalHeader}>
                 <Typography variant="h3" style={{ fontWeight: '800' }}>
                   Select {screenActiveDatePicker === 'start' ? 'From Date' : 'To Date'}
@@ -446,7 +517,7 @@ const s = StyleSheet.create({
   statScroll:   { gap: normalize(12), paddingBottom: normalize(4), marginBottom: normalize(16) },
   statCard:     { borderRadius: normalize(24), paddingHorizontal: normalize(10), paddingVertical: normalize(16), alignItems: 'center', width: normalize(124), borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.5)', overflow: 'hidden' },
   statIconWrap: { width: normalize(42), height: normalize(42), borderRadius: normalize(12), alignItems: 'center', justifyContent: 'center', marginBottom: normalize(10) },
-  statValue:    { fontSize: normalize(17), fontWeight: '900', marginBottom: normalize(4), textAlign: 'center', width: '100%' },
+  statValue:    { fontSize: normalize(17), fontWeight: '900', lineHeight: normalize(22), marginBottom: normalize(4), textAlign: 'center', width: '100%' },
   statLabel:    { fontSize: normalize(11), color: colors.text.secondary, fontWeight: '800', textAlign: 'center' },
 
   /* ── Day log card ────────────────────────────────────────── */
@@ -466,7 +537,7 @@ const s = StyleSheet.create({
   statItem:   { alignItems: 'center', flex: 1 },
   statLabelRow: { flexDirection: 'row', alignItems: 'center', gap: normalize(3), marginBottom: normalize(4) },
   statLbl:    { fontSize: normalize(9), color: colors.text.secondary, fontWeight: '800' },
-  statVal:    { fontSize: normalize(13), fontWeight: '800', color: colors.black },
+  statVal:    { fontSize: normalize(13), fontWeight: '800', lineHeight: normalize(18), color: colors.black },
 
   punchInOutRow: { flexDirection: 'row', gap: normalize(10) },
   punchBox:      { flex: 1, backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: normalize(8), padding: normalize(8), borderWidth: 1, borderColor: 'rgba(0,0,0,0.04)' },
@@ -515,6 +586,40 @@ const s = StyleSheet.create({
   td:                  { fontSize: normalize(13), color: colors.black, fontWeight: '600' },
   closeOutlineBtn:     { padding: normalize(12), borderRadius: normalize(10), borderWidth: 1, borderColor: colors.primary, alignItems: 'center' },
   closeOutlineBtnText: { color: colors.primary, fontWeight: '800', fontSize: normalize(14) },
+
+  /* ── View Toggle & Table Header styles ─────────────────── */
+  viewToggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: normalize(10),
+    padding: normalize(2),
+    alignItems: 'center',
+  },
+  viewToggleBtn: {
+    paddingHorizontal: normalize(8),
+    paddingVertical: normalize(5),
+    borderRadius: normalize(8),
+  },
+  viewToggleBtnActive: {
+    backgroundColor: colors.primary,
+  },
+  tableHeaderBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.75)',
+    paddingHorizontal: normalize(12),
+    paddingVertical: normalize(10),
+    borderRadius: normalize(12),
+    marginBottom: normalize(8),
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  tableThText: {
+    fontSize: normalize(10),
+    fontWeight: '800',
+    color: colors.text.secondary,
+    letterSpacing: 0.5,
+  },
 
   /* ── Empty state ─────────────────────────────────────────── */
   emptyWrap:           { alignItems: 'center', paddingVertical: normalize(50), borderRadius: normalize(24), borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(255,255,255,0.3)', marginTop: normalize(10) },
