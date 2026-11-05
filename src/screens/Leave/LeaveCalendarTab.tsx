@@ -7,7 +7,9 @@ import {
   StyleSheet,
   Dimensions,
   Modal,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import moment from 'moment';
 import { BlurView } from 'expo-blur';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
@@ -70,6 +72,7 @@ export const LeaveCalendarTab: React.FC<LeaveCalendarTabProps> = ({
   const [selectedType, setSelectedType] = useState<string>('');
   const [selectedEmployee, setSelectedEmployee] = useState<string>('');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const insets = useSafeAreaInsets();
 
   // View Mode options for Dropdown
   const viewModeOptions: DropdownOption[] = [
@@ -523,7 +526,17 @@ export const LeaveCalendarTab: React.FC<LeaveCalendarTabProps> = ({
       <Modal visible={isFilterModalOpen} animationType="slide" transparent onRequestClose={() => setIsFilterModalOpen(false)}>
         <View style={s.modalOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setIsFilterModalOpen(false)} />
-          <Animated.View entering={FadeInUp.springify()} style={[s.modalContent, { maxHeight: '85%' }]}>
+          <Animated.View
+            entering={FadeInUp.springify()}
+            style={[
+              s.modalContent,
+              {
+                maxHeight: '85%',
+                paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'ios' ? normalize(8) : normalize(16)),
+                overflow: 'hidden',
+              },
+            ]}
+          >
             <View style={s.modalHeaderRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(10), flex: 1 }}>
                 <View style={s.modalIconBg}>

@@ -16,7 +16,41 @@ import { ToastProvider } from '../context/ToastContext';
 import SplashScreen from '../screens/Splash/SplashScreen';
 import AuthEvents, { AUTH_LOGOUT_EVENT } from '../utils/AuthEvents';
 import { logoutAndClear } from '../store/slices/authSlice';
+import { markAppMounted } from './(app)/_layout';
 import '../services/api';
+import * as Haptics from 'expo-haptics';
+
+// Safe-guard expo-haptics so missing native binary linking never crashes the UI
+try {
+  const origImpact = Haptics.impactAsync;
+  const origNotify = Haptics.notificationAsync;
+  const origSelect = Haptics.selectionAsync;
+
+  (Haptics as any).impactAsync = async (...args: any[]) => {
+    try {
+      return await origImpact(...args);
+    } catch {
+      // Non-blocking fallback
+    }
+  };
+  (Haptics as any).notificationAsync = async (...args: any[]) => {
+    try {
+      return await origNotify(...args);
+    } catch {
+      // Non-blocking fallback
+    }
+  };
+  (Haptics as any).selectionAsync = async () => {
+    try {
+      return await origSelect();
+    } catch {
+      // Non-blocking fallback
+    }
+  };
+} catch {
+  // Ignore
+}
+
 
 // ─── Auth Gate ───────────────────────────────────────────────────────────────
 // Watches auth state and redirects accordingly using Expo Router
@@ -40,10 +74,12 @@ const AuthGate: React.FC = () => {
     const inAuthOrSplash = inAuthGroup;
 
     if (isAuthenticated && inAuthGroup) {
-      // Logged in but on auth screen → go to app
+      // Logged in from auth screen → never show splash after pressing login button
+      markAppMounted();
       router.replace('/(app)');
     } else if (!isAuthenticated && !inAuthOrSplash) {
       // Not logged in but trying to access app → go to login
+      markAppMounted();
       router.replace('/(auth)/login');
     }
   }, [isAuthenticated, segments]);
@@ -72,9 +108,7 @@ const RootLayout: React.FC = () => {
             >
               <QueryClientProvider client={queryClient}>
                 <ToastProvider>
-                  <StatusBar  translucent barStyle="dark-content" backgroundColor="transparent" />
-
-                  {/* <StatusBar style="light" translucent={true}  /> */}
+                  <StatusBar barStyle="dark-content" />
                   <AuthGate />
                 </ToastProvider>
               </QueryClientProvider>

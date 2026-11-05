@@ -584,7 +584,14 @@ export const NewRequestModal = ({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <BlurView intensity={40} tint="dark" style={s.modalOverlay}>
-        <View style={[s.modalSheet, { paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'android' ? normalize(16) : normalize(8)) }]}>
+        <View
+          style={[
+            s.modalSheet,
+            {
+              paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'ios' ? normalize(8) : normalize(16)),
+            },
+          ]}
+        >
           <View style={s.modalHandle} />
           <View style={s.modalTopRow}>
             <Typography style={s.modalTitle}>New {type} Request</Typography>
@@ -822,25 +829,29 @@ export const PunchSequenceModal = ({
             s.modalSheet,
             {
               maxHeight: '85%',
-              paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'android' ? normalize(16) : normalize(8)),
+              paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'ios' ? normalize(8) : normalize(16)),
             },
           ]}
         >
           <View style={s.modalHandle} />
           <View style={s.modalTopRow}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(8) }}>
-              <Typography style={s.modalTitle}>{moment(log.date).format('dddd, DD MMM YYYY')}</Typography>
-              <View style={[s.statusBadge, { backgroundColor: statusBg }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(8), flex: 1, marginRight: normalize(12) }}>
+              <Typography style={[s.modalTitle, { fontSize: normalize(16) }]} numberOfLines={1}>
+                {moment(log.date).format('ddd, DD MMM YYYY')}
+              </Typography>
+              <View style={[s.statusBadge, { backgroundColor: statusBg, flexShrink: 0 }]}>
                 <View style={[s.statusDot, { backgroundColor: statusColor }]} />
                 <Typography style={[s.statusBadgeText, { color: statusColor }]}>{log.status}</Typography>
               </View>
             </View>
-            <TouchableOpacity onPress={onClose} style={s.modalCloseBtn}>
+            <TouchableOpacity onPress={onClose} style={[s.modalCloseBtn, { flexShrink: 0 }]}>
               <X size={normalize(18)} color={colors.black} />
             </TouchableOpacity>
           </View>
 
+
           <ScrollView showsVerticalScrollIndicator={false} style={{ flexGrow: 1 }}>
+
             {/* Day Breakdown Summary Grid */}
             <Typography style={{ fontSize: normalize(10), fontWeight: '800', color: colors.text.muted, letterSpacing: 0.5, marginTop: normalize(8), marginBottom: normalize(8) }}>
               ATTENDANCE BREAKDOWN
@@ -1263,7 +1274,7 @@ export const CorrectionDetailsModal = ({
             borderTopLeftRadius: normalize(24),
             borderTopRightRadius: normalize(24),
             padding: normalize(20),
-            paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'android' ? normalize(16) : normalize(8)),
+            paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'ios' ? normalize(8) : normalize(16)),
             height: '82%',
             maxHeight: '88%',
             shadowColor: '#000',
@@ -1703,7 +1714,7 @@ export const CorrectionReviewModal = ({
             borderTopLeftRadius: normalize(24),
             borderTopRightRadius: normalize(24),
             padding: normalize(20),
-            paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'android' ? normalize(16) : normalize(8)),
+            paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'ios' ? normalize(8) : normalize(16)),
             height: '82%',
             maxHeight: '88%',
             shadowColor: '#000',

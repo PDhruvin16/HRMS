@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
+import { triggerHaptic } from '../../utils/haptic';
 import {
   View,
   TouchableOpacity,
@@ -73,8 +74,8 @@ const TabItem = ({ routeName, isFocused, onPress, isCenter }: TabItemProps) => {
     return (
       <View style={styles.specialButtonContainer}>
         <TouchableOpacity
-          onPress={async () => {
-            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          onPress={() => {
+            triggerHaptic('impactMedium');
             onPress();
           }}
           activeOpacity={0.9}
@@ -99,8 +100,8 @@ const TabItem = ({ routeName, isFocused, onPress, isCenter }: TabItemProps) => {
 
   return (
     <TouchableOpacity
-      onPress={async () => {
-        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onPress={() => {
+        triggerHaptic('impactLight');
         onPress();
       }}
       style={styles.tabItem}
@@ -119,15 +120,27 @@ const TabItem = ({ routeName, isFocused, onPress, isCenter }: TabItemProps) => {
   );
 };
 
-const CustomTabBar = ({ state, navigation, onCenterPress }: any) => {
+const CustomTabBar = ({ state, navigation, navigateToTab, onCenterPress }: any) => {
+  const router         = useRouter();
   const insets         = useSafeAreaInsets();
-  const activeRoute    = state.routes[state.index]?.name;
+  const activeRoute    = state?.routes?.[state.index]?.name;
   const tabHeight      = normalize(60);
   const safeBottom     = Platform.OS === 'android' ? 0 : insets.bottom;
   const wrapperHeight  = tabHeight + safeBottom;
   const notchWidth     = normalize(56);
   const notchDepth     = normalize(22);
   const center         = SCREEN_WIDTH / 2;
+
+  const handleNavigate = (routeName: string) => {
+    const route = state?.routes?.find((r: any) => r.name === routeName);
+    if (route && typeof navigateToTab === 'function') {
+      navigateToTab(route.key);
+    } else if (navigation && typeof navigation.navigate === 'function') {
+      navigation.navigate(routeName);
+    } else {
+      router.navigate(routeName === 'index' ? '/(app)' : `/(app)/${routeName}` as any);
+    }
+  };
 
   const path = `
     M 0,0
@@ -154,11 +167,11 @@ const CustomTabBar = ({ state, navigation, onCenterPress }: any) => {
       </View>
 
       <View style={[styles.tabBarContainer, { height: tabHeight, bottom: safeBottom }]}>
-        <TabItem routeName="index"      isFocused={activeRoute === 'index'}      onPress={() => navigation.navigate('index')} />
-        <TabItem routeName="leave"      isFocused={activeRoute === 'leave'}      onPress={() => navigation.navigate('leave')} />
+        <TabItem routeName="index"      isFocused={activeRoute === 'index'}      onPress={() => handleNavigate('index')} />
+        <TabItem routeName="leave"      isFocused={activeRoute === 'leave'}      onPress={() => handleNavigate('leave')} />
         <View style={styles.middleSpacer} />
-        <TabItem routeName="attendance" isFocused={activeRoute === 'attendance'} onPress={() => navigation.navigate('attendance')} />
-        <TabItem routeName="setting"    isFocused={activeRoute === 'setting'}    onPress={() => navigation.navigate('setting')} />
+        <TabItem routeName="attendance" isFocused={activeRoute === 'attendance'} onPress={() => handleNavigate('attendance')} />
+        <TabItem routeName="setting"    isFocused={activeRoute === 'setting'}    onPress={() => handleNavigate('setting')} />
       </View>
 
       <View style={[styles.floatingActionContainer, { top: -normalize(16) }]} pointerEvents="box-none">
@@ -168,7 +181,9 @@ const CustomTabBar = ({ state, navigation, onCenterPress }: any) => {
   );
 };
 
+
 let isAppFirstMount = true;
+export const markAppMounted = () => { isAppFirstMount = false; };
 
 export default function AppLayout() {
   usePermissions();

@@ -1,9 +1,19 @@
 import React, { useEffect, useRef } from 'react';
-import { View, StatusBar, Animated, Easing, StyleSheet } from 'react-native';
-import MaskedView from '@react-native-masked-view/masked-view';
+import { View, StatusBar, Animated, Easing, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import MaskedViewBase from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../theme/color';
 import styles from './SplashStyle';
+
+// Type workaround for @react-native-masked-view/masked-view with React 19 JSX types
+const MaskedView = MaskedViewBase as unknown as React.ComponentType<{
+  style?: StyleProp<ViewStyle>;
+  maskElement: React.ReactElement;
+  children?: React.ReactNode;
+  androidRenderingMode?: 'software' | 'hardware';
+}>;
+
+
 
 const SplashScreen: React.FC = () => {
   const bgFadeAnim = useRef(new Animated.Value(0)).current;
@@ -33,11 +43,7 @@ const SplashScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar
-        translucent
-        backgroundColor="transparent"
-        barStyle="light-content"
-      />
+      <StatusBar barStyle="light-content" />
 
       <Animated.View style={[StyleSheet.absoluteFill, styles.centerContainer, { opacity: bgFadeAnim }]}>
         {/* Centered SalesBot Text with Masked Linear Gradient */}

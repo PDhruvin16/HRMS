@@ -1,5 +1,5 @@
 import authApi from '../api/authApi';
-import storage from '../utils/Storage';
+import storage, { StorageKeys } from '../utils/Storage';
 import { AuthUser } from '../types/auth';
 import { setCredentials, setLoading, setError, logoutAndClear } from '../store/slices/authSlice';
 import { setPermissions } from '../store/slices/permissionSlice';

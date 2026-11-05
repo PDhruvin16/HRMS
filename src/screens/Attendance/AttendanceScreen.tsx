@@ -51,7 +51,7 @@ import * as Haptics from 'expo-haptics';
 import {
   TrendingUp, CalendarRange,
   Plus, X,
-  Coffee, Zap, Hourglass, Sun,
+  Coffee, Zap, Hourglass, Sun, CheckCircle2,
   UserCheck, UserX, Home,
 } from 'lucide-react-native';
 import { normalize } from '../../utils/responsive';
@@ -516,7 +516,7 @@ export const AttendanceScreen: React.FC = () => {
       totalOvertime:   secondsToHmsString(totalOvertimeSecs),
       totalBreak:      secondsToHmsString(totalBreakSecs),
       totalIncomplete: secondsToHmsString(totalIncompleteSecs),
-      todayLeavingTime: '',
+      todayLeavingTime: '-',
     };
   }, [logs, infiniteData]);
 
@@ -593,10 +593,16 @@ export const AttendanceScreen: React.FC = () => {
       const otToday = Math.max(0, todayWorkedSecs - targetSecs);
 
       // Leaving time estimate: punchIn + target + break
-      const targetForLeaving = targetSecs > 0 ? targetSecs : 8.5 * 3600;
-      const leavingTime = moment(firstPunchMoment)
-        .add(targetForLeaving + todayBreakSecs, 'seconds')
-        .format('hh:mm:ss A');
+      // Once target hours are achieved (overtime starts), show 'Target Done' instead of leaving time
+      let leavingTime = '-';
+      if (todayWorkedSecs >= targetSecs) {
+        leavingTime = 'Target Done';
+      } else {
+        const targetForLeaving = targetSecs > 0 ? targetSecs : 8.5 * 3600;
+        leavingTime = moment(firstPunchMoment)
+          .add(targetForLeaving + todayBreakSecs, 'seconds')
+          .format('hh:mm:ss A');
+      }
 
       // Incomplete hours: Base server incomplete minus live worked delta today
       const baseIncompleteSecs = parseHmsToSeconds(summary.totalIncomplete);
@@ -737,7 +743,14 @@ export const AttendanceScreen: React.FC = () => {
             <StatCard icon={<Zap        size={normalize(18)} color={colors.warning}    />} label="Overtime"   value={liveSummary.totalOvertime}    color={colors.warning}    />
             <StatCard icon={<Coffee     size={normalize(18)} color={colors.emailBlue}  />} label="Break"      value={liveSummary.totalBreak}       color={colors.emailBlue}  />
             <StatCard icon={<Hourglass  size={normalize(18)} color={colors.error}      />} label="Incomplete" value={liveSummary.totalIncomplete}  color={colors.error}      />
-            <StatCard icon={<Sun        size={normalize(18)} color={colors.success}    />} label="Leaving"    value={liveSummary.todayLeavingTime} color={colors.success}    />
+            <StatCard
+              icon={liveSummary.todayLeavingTime === 'Target Done'
+                ? <CheckCircle2 size={normalize(18)} color={colors.success} />
+                : <Sun size={normalize(18)} color={colors.success} />}
+              label="Leaving"
+              value={liveSummary.todayLeavingTime || '-'}
+              color={colors.success}
+            />
           </ScrollView>
         </Animated.View>
       )}
@@ -1425,7 +1438,15 @@ export const AttendanceScreen: React.FC = () => {
           onRequestClose={() => setScreenActiveDatePicker(null)}
         >
           <BlurView intensity={60} tint="dark" style={s.datePickerModalOverlay}>
-            <View style={[s.datePickerModalSheet, { paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'android' ? normalize(16) : normalize(8)) }]}>
+            <View
+              style={[
+                s.datePickerModalSheet,
+                {
+                  paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'ios' ? normalize(8) : normalize(16)),
+                },
+              ]}
+            >
+
               <View style={s.datePickerModalHeader}>
                 <Typography variant="h3" style={{ fontWeight: '800' }}>
                   Select {screenActiveDatePicker === 'start' ? 'From Date' : 'To Date'}

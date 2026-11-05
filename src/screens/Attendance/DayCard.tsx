@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -99,6 +99,14 @@ export const DayCard = ({
   const lastPunch = log.punches && log.punches.length > 0 ? log.punches[log.punches.length - 1] : null;
   const isLastPunchIn = lastPunch ? lastPunch.type === 'IN' : Boolean(log.rawPunchIn && !log.rawPunchOut);
   const isOngoing = Boolean(isToday && isLastPunchIn);
+
+  const displayDate = useMemo(() => {
+    if (log?.date) {
+      const m = moment(log.date);
+      if (m.isValid()) return m.format('ddd DD MMM');
+    }
+    return log?.dayLabel || '';
+  }, [log?.date, log?.dayLabel]);
 
   const [liveWorked, setLiveWorked] = useState(log.workingHours);
   const [liveOvertime, setLiveOvertime] = useState(log.overtime);
@@ -221,7 +229,7 @@ export const DayCard = ({
           {/* Header Row */}
           <View style={s.dayCardHeaderRow}>
             <View style={s.headerLeft}>
-              <Typography style={s.dayCardDate}>{log.dayLabel}</Typography>
+              <Typography style={s.dayCardDate} numberOfLines={1}>{displayDate}</Typography>
               <StatusBadge status={log.status} />
               {log.leaveType && (
                 <View style={s.leavePill}>
@@ -392,11 +400,13 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: normalize(4),
+    flexShrink: 0,
   },
   dayCardDate: {
     fontSize: normalize(14),
     fontWeight: '800',
     color: colors.text.primary,
+    flexShrink: 0,
   },
   statusBadge: {
     flexDirection: 'row',

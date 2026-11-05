@@ -13,7 +13,9 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import Animated, { FadeInDown, FadeInUp, useAnimatedStyle, withTiming, useSharedValue } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -421,6 +423,7 @@ export const LeaveDetailsModal: React.FC<{
   onCancelLeave?: (id: string) => void;
   isCancelling?: boolean;
 }> = ({ visible, req, onClose, onCancelLeave, isCancelling }) => {
+  const insets = useSafeAreaInsets();
   if (!req) return null;
 
   const reqCode = getRequestCode(req);
@@ -444,7 +447,17 @@ export const LeaveDetailsModal: React.FC<{
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <BlurView intensity={40} tint="dark" style={s.modalOverlay}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
-        <Animated.View entering={FadeInUp.springify()} style={[s.modalContent, { maxHeight: '85%' }]}>
+        <Animated.View
+          entering={FadeInUp.springify()}
+          style={[
+            s.modalContent,
+            {
+              maxHeight: '85%',
+              paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'ios' ? normalize(8) : normalize(16)),
+              overflow: 'hidden',
+            },
+          ]}
+        >
           <View style={s.modalHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: normalize(12), flex: 1 }}>
               <View style={s.modalIconBg}>
@@ -647,7 +660,18 @@ export const ApplyLeaveModal: React.FC<{
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleCloseModal}>
       <View style={s.modalOverlay}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={handleCloseModal} />
-        <Animated.View entering={FadeInUp.springify()} style={[s.modalContent, { maxHeight: '85%', paddingBottom: insets.bottom || 24, position: 'relative' }]}>
+        <Animated.View
+          entering={FadeInUp.springify()}
+          style={[
+            s.modalContent,
+            {
+              maxHeight: '85%',
+              paddingBottom: Math.max(insets?.bottom || 0, normalize(16)) + (Platform.OS === 'ios' ? normalize(8) : normalize(16)),
+              position: 'relative',
+              overflow: 'hidden',
+            },
+          ]}
+        >
           <View style={s.modalHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
               <View style={s.modalIconBg}><CalendarRange size={20} color={colors.primary} /></View>
@@ -831,6 +855,7 @@ export const CustomDateRangeModal: React.FC<{
   onClose: () => void;
   onApply: (from: string, to: string) => void;
 }> = ({ visible, fromDate: initialFrom, toDate: initialTo, onClose, onApply }) => {
+  const insets = useSafeAreaInsets();
   const [activeMode, setActiveMode] = useState<'from' | 'to'>('from');
   const [localFrom, setLocalFrom] = useState(initialFrom || '');
   const [localTo, setLocalTo] = useState(initialTo || '');
@@ -867,7 +892,17 @@ export const CustomDateRangeModal: React.FC<{
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={s.modalOverlay}>
-        <Animated.View entering={FadeInUp.springify()} style={[s.modalContent, { position: 'relative' }]}>
+        <Animated.View
+          entering={FadeInUp.springify()}
+          style={[
+            s.modalContent,
+            {
+              position: 'relative',
+              paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'ios' ? normalize(8) : normalize(16)),
+              overflow: 'hidden',
+            },
+          ]}
+        >
           <View style={s.modalHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={s.modalIconBg}><CalendarDays size={20} color={colors.primary} /></View>
@@ -998,6 +1033,7 @@ export const LeaveFilterModal: React.FC<{
   isApprovals = false,
   isBalances = false,
 }) => {
+  const insets = useSafeAreaInsets();
   const [quickDate, setQuickDate] = useState(initialFilters.quickDate || '');
   const [fromDate, setFromDate] = useState(initialFilters.fromDate || '');
   const [toDate, setToDate] = useState(initialFilters.toDate || '');
@@ -1128,7 +1164,17 @@ export const LeaveFilterModal: React.FC<{
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={s.modalOverlay}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
-        <Animated.View entering={FadeInUp.springify()} style={[s.modalContent, { maxHeight: '85%' }]}>
+        <Animated.View
+          entering={FadeInUp.springify()}
+          style={[
+            s.modalContent,
+            {
+              maxHeight: '85%',
+              paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'ios' ? normalize(8) : normalize(16)),
+              overflow: 'hidden',
+            },
+          ]}
+        >
           <View style={s.modalHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={s.modalIconBg}>
@@ -1441,6 +1487,7 @@ export const LeaveBalanceDetailsModal: React.FC<{
   balance: AdminLeaveBalance | null;
   onClose: () => void;
 }> = ({ visible, balance, onClose }) => {
+  const insets = useSafeAreaInsets();
   if (!balance) return null;
 
   const empName = balance.employeeName || 'N/A';
@@ -1466,7 +1513,17 @@ export const LeaveBalanceDetailsModal: React.FC<{
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={s.modalOverlay}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
-        <Animated.View entering={FadeInUp.springify()} style={[s.modalContent, { maxHeight: '85%' }]}>
+        <Animated.View
+          entering={FadeInUp.springify()}
+          style={[
+            s.modalContent,
+            {
+              maxHeight: '85%',
+              paddingBottom: Math.max(insets.bottom, normalize(16)) + (Platform.OS === 'ios' ? normalize(8) : normalize(16)),
+              overflow: 'hidden',
+            },
+          ]}
+        >
           <View style={s.modalHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={s.modalIconBg}>

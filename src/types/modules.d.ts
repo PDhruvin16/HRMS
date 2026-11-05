@@ -118,3 +118,4 @@ declare module 'react-native-calendars' {
 
   export class Calendar extends React.Component<CalendarProps> {}
 }
+
